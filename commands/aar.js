@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, EmbedBuilder } = require('discord.js');
 const { google } = require('googleapis');
+const cacheManager = require('../cacheManager');
 
 const auth = new google.auth.GoogleAuth({
   keyFile: 'service_account.json',
@@ -8,15 +9,16 @@ const auth = new google.auth.GoogleAuth({
 
 const sheets = google.sheets({ version: 'v4', auth });
 
-// Function to get trooper name from SteamID
+// Function to get trooper name from SteamID using cache
 async function getTrooperNameFromSteamID(steamID) {
   try {
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.MAIN_SPREADSHEET_ID,
-      range: `'212th Attack Battalion'!A2:F1000`, // Adjust range as needed
-    });
+    // Get the cached main sheet data
+    const rows = await cacheManager.getCachedSheetData(
+      process.env.MAIN_SPREADSHEET_ID,
+      `'212th Attack Battalion'!A2:F1000`,
+      'main'
+    );
 
-    const rows = response.data.values || [];
     const result = rows.find(row => row[5] === steamID); // SteamID is column F (index 5)
     
     if (result) {
@@ -378,6 +380,27 @@ module.exports = {
     async execute(interaction) {
         const subcommand = interaction.options.getSubcommand();
 
+        // Check if the interaction has been deferred (by index.js)
+        const isDeferred = interaction.deferred;
+        
+        // Check if the user is registered
+        const isRegistered = await isUserRegistered(interaction.user.id);
+        
+        if (!isRegistered) {
+            // Use the appropriate reply method based on whether the interaction was deferred
+            if (isDeferred) {
+                return await interaction.editReply({ 
+                    content: 'You must be registered to use this command. Please use `/register` with your SteamID to register first.', 
+                    ephemeral: true 
+                });
+            } else {
+                return await interaction.reply({ 
+                    content: 'You must be registered to use this command. Please use `/register` with your SteamID to register first.', 
+                    ephemeral: true 
+                });
+            }
+        }
+        
         // Map subcommands to event types
         const eventTypeMap = {
             's1event': 'S1 Event',
@@ -401,6 +424,12 @@ module.exports = {
 
         if (eventTypeMap[subcommand]) {
             const eventType = eventTypeMap[subcommand];
+            
+            // If the interaction was deferred, we need to edit the reply to remove it
+            // before showing a modal
+            if (isDeferred) {
+                await interaction.deleteReply();
+            }
             
             // Handle different event types
             if (subcommand === 's1event' || subcommand === 's2event') {
@@ -445,23 +474,42 @@ module.exports = {
                 await handleGMActivitiesLog(interaction, eventType);
             } else {
                 // For now, handle all other event types with a generic response
-
+                if (isDeferred) {
+                    await interaction.editReply({
+                        content: `AAR logging for ${eventType} is not yet implemented.`,
+                        ephemeral: true
+                    });
+                } else {
+                    await interaction.reply({
+                        content: `AAR logging for ${eventType} is not yet implemented.`,
+                        ephemeral: true
+                    });
+                }
+            }
+        } else if (subcommand === 'append') {
+            if (isDeferred) {
                 await interaction.editReply({
-                    content: `AAR logging for ${eventType} is not yet implemented.`,
+                    content: 'The append functionality is not yet implemented.',
+                    ephemeral: true
+                });
+            } else {
+                await interaction.reply({
+                    content: 'The append functionality is not yet implemented.',
                     ephemeral: true
                 });
             }
-        } else if (subcommand === 'append') {
-
-            await interaction.editReply({
-                content: 'The append functionality is not yet implemented.',
-                ephemeral: true
-            });
         } else if (subcommand === 'skim') {
-            await interaction.editReply({
-                content: 'The skim functionality is not yet implemented.',
-                ephemeral: true
-            });
+            if (isDeferred) {
+                await interaction.editReply({
+                    content: 'The skim functionality is not yet implemented.',
+                    ephemeral: true
+                });
+            } else {
+                await interaction.reply({
+                    content: 'The skim functionality is not yet implemented.',
+                    ephemeral: true
+                });
+            }
         }
     }
 };
@@ -529,10 +577,9 @@ async function handleStandardEventLog(interaction, eventType) {
         // Defer the reply to give time for spreadsheet lookup
         await modalSubmission.deferReply({ ephemeral: true });
         
-        // Look up the name from the spreadsheet
+        // Look up the name from the spreadsheet using the cached function
         const name = await getTrooperNameFromSteamID(steamId);
         
-
         // Create an embed for the AAR channel - now matching the training sim style
         const aarEmbed = new EmbedBuilder()
             .setTitle(`After Action Report`)
@@ -2173,4 +2220,24 @@ async function handleGMActivitiesLog(interaction, eventType) {
         // If the error is due to timeout, we don't need to do anything
         // as the modal will just close
     }
+}
+
+// Function to check if a user is registered (copied from index.js)
+async function isUserRegistered(discordId) {
+  try {
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.OFFICER_SPREADSHEET_ID,
+      range: `'Bot'!A2:B`,
+      valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+
+    const rows = response.data.values || [];
+    const nonEmptyRows = rows.filter(row => row.length > 0 && row[0]);
+    const existingEntry = nonEmptyRows.find(row => row[0] === discordId);
+    
+    return !!existingEntry; // Convert to boolean
+  } catch (error) {
+    console.error('Error checking user registration:', error);
+    return false; // Default to not registered on error
+  }
 }

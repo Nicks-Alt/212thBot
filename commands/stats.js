@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { google } = require('googleapis');
+const cacheManager = require('../cacheManager');
 
 const auth = new google.auth.GoogleAuth({
   keyFile: 'service_account.json',
@@ -44,7 +45,8 @@ module.exports = {
       // Get the Discord ID of the user to look up
       const discordId = userToLookup.id;
       
-      // Get the SteamID from the Bot database
+      // Get the SteamID from the Bot database using cache
+      console.log(`Getting SteamID for Discord ID: ${discordId}`);
       const steamId = await getSteamIdFromDiscordId(discordId);
       
       if (!steamId) {
@@ -57,8 +59,10 @@ module.exports = {
         return;
       }
       
-      // Get the user's information from the main database
-      const userInfo = await getUserInfoFromSteamID(steamId);
+      console.log(`Found SteamID: ${steamId} for Discord ID: ${discordId}`);
+      
+      // Get the user's information and statistics in one call
+      const { userInfo, userStats } = await getUserInfoAndStatsFromSteamID(steamId);
       
       if (!userInfo || userInfo.name === 'Unknown') {
         await interaction.editReply({
@@ -67,9 +71,6 @@ module.exports = {
         });
         return;
       }
-      
-      // Get the user's statistics from the OFFICER database
-      const userStats = await getUserStatsFromSteamID(steamId);
       
       // Create an embed with the user's information
       const embed = new EmbedBuilder()
@@ -110,8 +111,8 @@ module.exports = {
           detailedStats.push(`Trainings: ${userStats.trainings}`);
         }
         
-        if (userStats.joints && userStats.joints !== '0') {
-          detailedStats.push(`Joints: ${userStats.joints}`);
+        if (userStats.jointTrainings && userStats.jointTrainings !== '0') {
+          detailedStats.push(`Joint Trainings: ${userStats.jointTrainings}`);
         }
         
         if (userStats.tryoutsRan && userStats.tryoutsRan !== '0') {
@@ -123,7 +124,7 @@ module.exports = {
         }
         
         if (userStats.btsRan && userStats.btsRan !== '0') {
-          detailedStats.push(`BTs Ran: ${userStats.btsRan}`);
+          detailedStats.push(`Basic Trainings Ran: ${userStats.btsRan}`);
         }
         
         if (userStats.trainingsLead && userStats.trainingsLead !== '0') {
@@ -134,52 +135,71 @@ module.exports = {
           detailedStats.push(`Rank Exams: ${userStats.rankExams}`);
         }
         
+        // Certifications section
+        const certStats = [];
+        
         if (userStats.gcCerts && userStats.gcCerts !== '0') {
-          detailedStats.push(`GC Certifications: ${userStats.gcCerts}`);
+          certStats.push(`GC Certs: ${userStats.gcCerts}`);
         }
         
         if (userStats.abCerts && userStats.abCerts !== '0') {
-          detailedStats.push(`2AB Certifications: ${userStats.abCerts}`);
+          certStats.push(`2AB Certs: ${userStats.abCerts}`);
         }
         
         if (userStats.arfCerts && userStats.arfCerts !== '0') {
-          detailedStats.push(`ARF Certifications: ${userStats.arfCerts}`);
+          certStats.push(`ARF Certs: ${userStats.arfCerts}`);
         }
         
         if (userStats.wraithCerts && userStats.wraithCerts !== '0') {
-          detailedStats.push(`Wraith Certifications: ${userStats.wraithCerts}`);
+          certStats.push(`Wraith Certs: ${userStats.wraithCerts}`);
         }
         
         if (userStats.medicCerts && userStats.medicCerts !== '0') {
-          detailedStats.push(`Medic Certifications: ${userStats.medicCerts}`);
+          certStats.push(`Medic Certs: ${userStats.medicCerts}`);
         }
         
         if (userStats.heavyCerts && userStats.heavyCerts !== '0') {
-          detailedStats.push(`Heavy Certifications: ${userStats.heavyCerts}`);
+          certStats.push(`Heavy Certs: ${userStats.heavyCerts}`);
         }
         
         if (userStats.jsfGoldCerts && userStats.jsfGoldCerts !== '0') {
-          detailedStats.push(`JSF Gold Certifications: ${userStats.jsfGoldCerts}`);
+          certStats.push(`JSF Gold Certs: ${userStats.jsfGoldCerts}`);
         }
+        
+        // Advanced stats section
+        const advancedStats = [];
         
         if (userStats.gmActivities && userStats.gmActivities !== '0') {
-          detailedStats.push(`GM Activities: ${userStats.gmActivities}`);
+          advancedStats.push(`GM Activities: ${userStats.gmActivities}`);
         }
         
-        if (userStats.ncoTrainings && userStats.ncoTrainings !== '0') {
-          detailedStats.push(`(S)NCO Basic Trainings: ${userStats.ncoTrainings}`);
+        if (userStats.sncoBtsRan && userStats.sncoBtsRan !== '0') {
+          advancedStats.push(`(S)NCO BTs Ran: ${userStats.sncoBtsRan}`);
         }
         
-        if (userStats.btCerts && userStats.btCerts !== '0') {
-          detailedStats.push(`BT Certifications: ${userStats.btCerts}`);
+        if (userStats.btCertsGiven && userStats.btCertsGiven !== '0') {
+          advancedStats.push(`BT Certs Given: ${userStats.btCertsGiven}`);
         }
         
         // Add the detailed stats field if there are any non-zero values
         if (detailedStats.length > 0) {
-          embed.addFields({ name: 'Detailed Statistics', value: detailedStats.join('\n'), inline: false });
+          embed.addFields({ name: 'Activity Statistics', value: detailedStats.join('\n'), inline: false });
         }
+        
+        // Add the certification stats field if there are any non-zero values
+        if (certStats.length > 0) {
+          embed.addFields({ name: 'Certification Statistics', value: certStats.join('\n'), inline: false });
+        }
+        
+        // Add the advanced stats field if there are any non-zero values
+        if (advancedStats.length > 0) {
+          embed.addFields({ name: 'Advanced Statistics', value: advancedStats.join('\n'), inline: false });
+        }
+      } else {
+        embed.addFields({ name: 'Statistics', value: 'No statistics available yet.', inline: false });
       }
       
+      // Send the embed
       await interaction.editReply({
         embeds: [embed],
         ephemeral: true
@@ -188,24 +208,46 @@ module.exports = {
     } catch (error) {
       console.error('Error executing stats command:', error);
       await interaction.editReply({
-        content: 'An error occurred while retrieving your stats. Please try again later.',
+        content: `An error occurred while retrieving statistics: ${error.message}`,
         ephemeral: true
       });
     }
   }
 };
 
-// Function to get SteamID from Discord ID
-async function getSteamIdFromDiscordId(discordId) {
+// Helper function to check if a user is an officer using cache
+async function isUserOfficer(discordId) {
   try {
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.OFFICER_SPREADSHEET_ID,
-      range: `'Bot'!A2:B1000`,
-    });
+    const rows = await cacheManager.getCachedSheetData(
+      process.env.OFFICER_SPREADSHEET_ID,
+      `'Bot'!A2:C`,
+      'registrationdata',
+      false,
+      'UNFORMATTED_VALUE'
+    );
 
-    const rows = response.data.values || [];
     const userRow = rows.find(row => row[0] === discordId);
     
+    // If user found and officer status is true (column C, index 2)
+    return userRow && userRow.length > 2 && 
+           (userRow[2] === true || userRow[2] === "TRUE" || userRow[2] === "true");
+  } catch (error) {
+    console.error('Error checking officer status:', error);
+    return false;
+  }
+}
+
+// Helper function to get SteamID from Discord ID using cache
+async function getSteamIdFromDiscordId(discordId) {
+  try {
+    const rows = await cacheManager.getCachedSheetData(
+      process.env.OFFICER_SPREADSHEET_ID,
+      `'Bot'!A2:B`,
+      'registrationdata'
+    );
+    
+    const userRow = rows.find(row => row[0] === discordId);
+    console.log("User Row:", userRow);
     return userRow ? userRow[1] : null;
   } catch (error) {
     console.error('Error getting SteamID from Discord ID:', error);
@@ -213,34 +255,15 @@ async function getSteamIdFromDiscordId(discordId) {
   }
 }
 
-// Function to check if a user is an officer
-async function isUserOfficer(discordId) {
-  try {
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.OFFICER_SPREADSHEET_ID,
-      range: `'Bot'!A2:C1000`,
-    });
-
-    const rows = response.data.values || [];
-    const userRow = rows.find(row => row[0] === discordId);
-    
-    // Check if column C has a true value (officer status)
-    return userRow && (userRow[2] === true || userRow[2] === "TRUE" || userRow[2] === "true");
-  } catch (error) {
-    console.error('Error checking officer status:', error);
-    return false;
-  }
-}
-
-// Function to get user info from SteamID
+// Helper function to get user info from SteamID using cache
 async function getUserInfoFromSteamID(steamID) {
   try {
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.MAIN_SPREADSHEET_ID,
-      range: `'212th Attack Battalion'!A2:F1000`, // Reduced range to only include needed columns
-    });
-
-    const rows = response.data.values || [];
+    const rows = await cacheManager.getCachedSheetData(
+      process.env.MAIN_SPREADSHEET_ID,
+      `'212th Attack Battalion'!A2:F1000`,
+      'mainsheetdata'
+    );
+    
     const result = rows.find(row => row[5] === steamID); // SteamID is column F (index 5)
     
     if (result) {
@@ -257,46 +280,137 @@ async function getUserInfoFromSteamID(steamID) {
   }
 }
 
-// Function to get user statistics from SteamID
+// Helper function to get user statistics from SteamID using cache
 async function getUserStatsFromSteamID(steamID) {
   try {
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.OFFICER_SPREADSHEET_ID,
-      range: `'Statistics'!C2:AA1000`, // Range includes all statistics columns
-    });
-
-    const rows = response.data.values || [];
-    const result = rows.find(row => row[0] === steamID); // SteamID is column C (index 0 in this range)
+    // Get statistics from the Statistics sheet - extending range to include all columns (A to AA)
+    const rows = await cacheManager.getCachedSheetData(
+      process.env.OFFICER_SPREADSHEET_ID,
+      `'Statistics'!A:AA`,
+      'statistics'
+    );
     
-    if (result) {
-      return {
-        totalActivities: result[2] || '0',       // Column E (index 2 in this range)
-        totalParticipations: result[4] || '0',   // Column G (index 4 in this range)
-        s1Events: result[6] || '0',              // Column I (index 6 in this range)
-        s2Events: result[7] || '0',              // Column J (index 7 in this range)
-        trainings: result[8] || '0',             // Column K (index 8 in this range)
-        joints: result[9] || '0',                // Column L (index 9 in this range)
-        tryoutsRan: result[10] || '0',           // Column M (index 10 in this range)
-        tryoutsOverseen: result[11] || '0',      // Column N (index 11 in this range)
-        btsRan: result[12] || '0',               // Column O (index 12 in this range)
-        trainingsLead: result[13] || '0',        // Column P (index 13 in this range)
-        rankExams: result[14] || '0',            // Column Q (index 14 in this range)
-        gcCerts: result[15] || '0',              // Column R (index 15 in this range)
-        abCerts: result[16] || '0',              // Column S (index 16 in this range)
-        arfCerts: result[17] || '0',             // Column T (index 17 in this range)
-        wraithCerts: result[18] || '0',          // Column U (index 18 in this range)
-        medicCerts: result[19] || '0',           // Column V (index 19 in this range)
-        heavyCerts: result[20] || '0',           // Column W (index 20 in this range)
-        jsfGoldCerts: result[21] || '0',         // Column X (index 21 in this range)
-        gmActivities: result[22] || '0',         // Column Y (index 22 in this range)
-        ncoTrainings: result[23] || '0',         // Column Z (index 23 in this range)
-        btCerts: result[24] || '0'               // Column AA (index 24 in this range)
-      };
+    // SteamID is in column C (index 2)
+    const userRow = rows.find(row => row[2] === steamID);
+    
+    if (!userRow) {
+      return null;
     }
     
-    return null;
+    // Map the statistics to a more readable format using the correct indices
+    return {
+      name: userRow[1] || 'Unknown',           // Column B (index 1) - Name
+      totalActivities: userRow[4] || '0',      // Column E (index 4) - Total Activities
+      totalParticipations: userRow[6] || '0',  // Column G (index 6) - Total Participations
+      s1Events: userRow[8] || '0',             // Column I (index 8) - S1 Events
+      s2Events: userRow[9] || '0',             // Column J (index 9) - S2 Events
+      trainings: userRow[10] || '0',           // Column K (index 10) - Trainings Logged
+      jointTrainings: userRow[11] || '0',      // Column L (index 11) - Joint Trainings Logged
+      tryoutsRan: userRow[12] || '0',          // Column M (index 12) - Tryouts Ran
+      tryoutsOverseen: userRow[13] || '0',     // Column N (index 13) - Tryouts Overseen
+      btsRan: userRow[14] || '0',              // Column O (index 14) - BTs Ran
+      trainingsLead: userRow[15] || '0',       // Column P (index 15) - Trainings Lead
+      rankExams: userRow[16] || '0',           // Column Q (index 16) - Rank Exams Ran
+      gcCerts: userRow[17] || '0',             // Column R (index 17) - GC Certs
+      abCerts: userRow[18] || '0',             // Column S (index 18) - 2AB Certs
+      arfCerts: userRow[19] || '0',            // Column T (index 19) - ARF Certs
+      wraithCerts: userRow[20] || '0',         // Column U (index 20) - Wraith
+      medicCerts: userRow[21] || '0',          // Column V (index 21) - Medic
+      heavyCerts: userRow[22] || '0',          // Column W (index 22) - Heavy
+      jsfGoldCerts: userRow[23] || '0',        // Column X (index 23) - JSF Gold
+      gmActivities: userRow[24] || '0',        // Column Y (index 24) - GM Activities
+      sncoBtsRan: userRow[25] || '0',          // Column Z (index 25) - SNCO BTs Ran
+      btCertsGiven: userRow[26] || '0'         // Column AA (index 26) - BT Certs Given
+    };
   } catch (error) {
     console.error('Error fetching statistics from spreadsheet:', error);
     return null;
+  }
+}
+
+// Helper function to get user info and statistics from SteamID using cache
+async function getUserInfoAndStatsFromSteamID(steamID) {
+  try {
+    console.log(`Looking up info and stats for SteamID: ${steamID}`);
+    
+    // Get statistics from the Statistics sheet - extending range to include all columns (A to AA)
+    const rows = await cacheManager.getCachedSheetData(
+      process.env.OFFICER_SPREADSHEET_ID,
+      `'Statistics'!A2:AA`,
+      'statistics'
+    );
+    
+    console.log(`Got ${rows.length} rows from statistics cache`);
+    
+    // SteamID is in column C (index 2)
+    const userRow = rows.find(row => row && row[2] === steamID);
+    
+    if (!userRow) {
+      console.log(`No statistics found for SteamID: ${steamID}`);
+      
+      // If not found in statistics, try to get basic info from main sheet
+      try {
+        const mainRows = await cacheManager.getCachedSheetData(
+          process.env.MAIN_SPREADSHEET_ID,
+          `'212th Attack Battalion'!A2:F1000`,
+          'mainsheetdata'
+        );
+        
+        const mainResult = mainRows.find(row => row && row[5] === steamID);
+        
+        if (mainResult) {
+          console.log(`Found basic info in main sheet for SteamID: ${steamID}`);
+          return {
+            userInfo: {
+              name: mainResult[4] || 'Unknown',
+              rank: mainResult[2] || 'Unknown'
+            },
+            userStats: null
+          };
+        }
+      } catch (mainError) {
+        console.error('Error fetching info from main spreadsheet:', mainError);
+      }
+      
+      return { userInfo: { name: 'Unknown', rank: 'Unknown' }, userStats: null };
+    }
+    
+    console.log(`Found statistics for SteamID: ${steamID}`);
+    
+    // Extract user info from the stats sheet
+    const userInfo = {
+      name: userRow[1] || 'Unknown',  // Column B (index 1) - Name
+      rank: userRow[0] || 'Unknown'   // Column A (index 0) - Rank
+    };
+    
+    // Map the statistics to a more readable format using the correct indices
+    const userStats = {
+      totalActivities: userRow[4] || '0',      // Column E (index 4) - Total Activities
+      totalParticipations: userRow[6] || '0',  // Column G (index 6) - Total Participations
+      s1Events: userRow[8] || '0',             // Column I (index 8) - S1 Events
+      s2Events: userRow[9] || '0',             // Column J (index 9) - S2 Events
+      trainings: userRow[10] || '0',           // Column K (index 10) - Trainings Logged
+      jointTrainings: userRow[11] || '0',      // Column L (index 11) - Joint Trainings Logged
+      tryoutsRan: userRow[12] || '0',          // Column M (index 12) - Tryouts Ran
+      tryoutsOverseen: userRow[13] || '0',     // Column N (index 13) - Tryouts Overseen
+      btsRan: userRow[14] || '0',              // Column O (index 14) - BTs Ran
+      trainingsLead: userRow[15] || '0',       // Column P (index 15) - Trainings Lead
+      rankExams: userRow[16] || '0',           // Column Q (index 16) - Rank Exams Ran
+      gcCerts: userRow[17] || '0',             // Column R (index 17) - GC Certs
+      abCerts: userRow[18] || '0',             // Column S (index 18) - 2AB Certs
+      arfCerts: userRow[19] || '0',            // Column T (index 19) - ARF Certs
+      wraithCerts: userRow[20] || '0',         // Column U (index 20) - Wraith
+      medicCerts: userRow[21] || '0',          // Column V (index 21) - Medic
+      heavyCerts: userRow[22] || '0',          // Column W (index 22) - Heavy
+      jsfGoldCerts: userRow[23] || '0',        // Column X (index 23) - JSF Gold
+      gmActivities: userRow[24] || '0',        // Column Y (index 24) - GM Activities
+      sncoBtsRan: userRow[25] || '0',          // Column Z (index 25) - SNCO BTs Ran
+      btCertsGiven: userRow[26] || '0'         // Column AA (index 26) - BT Certs Given
+    };
+    
+    return { userInfo, userStats };
+  } catch (error) {
+    console.error('Error fetching info and statistics from spreadsheet:', error);
+    return { userInfo: { name: 'Unknown', rank: 'Unknown' }, userStats: null };
   }
 }

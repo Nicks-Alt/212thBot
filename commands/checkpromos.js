@@ -3,6 +3,7 @@ const { google } = require('googleapis');
 const moment = require('moment');
 const fs = require('fs');
 const path = require('path');
+const cacheManager = require('../cacheManager');
 require('dotenv').config();
 
 // Configure Google Sheets API
@@ -61,12 +62,13 @@ module.exports = {
 // Helper function to check if a user is an officer
 async function isUserOfficer(discordId) {
     try {
-        const response = await sheets.spreadsheets.values.get({
-            spreadsheetId: process.env.OFFICER_SPREADSHEET_ID,
-            range: `'Bot'!A2:C1000`,
-        });
-
-        const rows = response.data.values || [];
+        // Use the cache manager to get officer data
+        const rows = await cacheManager.getCachedSheetData(
+            process.env.OFFICER_SPREADSHEET_ID,
+            `'Bot'!A2:C1000`,
+            'officer'
+        );
+        
         const userRow = rows.find(row => row[0] === discordId);
         
         // Check if column C has a true value (officer status)
@@ -80,26 +82,24 @@ async function isUserOfficer(discordId) {
 
 async function getEligibleMembers() {
     try {
-        // First spreadsheet - "Eligible Votes"
-        const eligibleVotesResponse = await sheets.spreadsheets.values.get({
-            spreadsheetId: process.env.OFFICER_SPREADSHEET_ID,
-            range: 'Eligible Votes!A:B',
-        });
-        
-        const eligibleVotesRows = eligibleVotesResponse.data.values || [];
+        // First spreadsheet - "Eligible Votes" - use cache
+        const eligibleVotesRows = await cacheManager.getCachedSheetData(
+            process.env.OFFICER_SPREADSHEET_ID,
+            'Eligible Votes!A:B',
+            'eligibleVotes'
+        );
         
         // Filter rows where column B contains PFC or LCPL
         const eligibleNames = eligibleVotesRows
             .filter(row => row.length > 1 && (row[1].includes('PFC') || row[1].includes('LCPL')))
             .map(row => row[0]);
         
-        // Second spreadsheet - "212th Attack Battalion"
-        const battalionResponse = await sheets.spreadsheets.values.get({
-            spreadsheetId: process.env.MAIN_SPREADSHEET_ID,
-            range: '212th Attack Battalion!E:M',
-        });
-        
-        const battalionRows = battalionResponse.data.values || [];
+        // Second spreadsheet - "212th Attack Battalion" - use cache
+        const battalionRows = await cacheManager.getCachedSheetData(
+            process.env.MAIN_SPREADSHEET_ID,
+            '212th Attack Battalion!E:M',
+            'battalion'
+        );
         
         // Filter rows where name is in eligibleNames and column M (index 8) is 0
         const finalEligibleMembers = [];
@@ -125,7 +125,7 @@ async function getEligibleMembers() {
 
 async function checkVotingMessages(client) {
     try {
-        const channelId = '1371399796333609031'; // CHANGE
+        const channelId = process.env.VOTING_CHANNEL_ID;
         const channel = await client.channels.fetch(channelId);
         
         if (!channel) {
@@ -145,8 +145,8 @@ async function checkVotingMessages(client) {
             const hoursDifference = now.diff(messageTime, 'hours');
             
             // Check if message contains required mentions and the word "for"
-            const hasOfficerHighCommand = message.content.includes('<@&1359286559433691240>'); // CHANGE
-            const has212thMention = message.content.includes('<@&1332687042756481065>'); // CHANGE
+            const hasOfficerHighCommand = message.content.includes(`<@&${process.env.OFFICER_ROLE}>`); // CHANGE
+            const has212thMention = message.content.includes(`<@&${process.env['212TH_ROLE']}>`); // CHANGE
             const hasForWord = message.content.toLowerCase().includes('for');
             
             if ((hasOfficerHighCommand || has212thMention) && hasForWord) {
@@ -177,10 +177,10 @@ async function checkVotingMessages(client) {
                 // Only include messages with no reactions or exclusively yes/no reactions
                 if (!hasOtherReactions) {
                     votingMessages.push({
+                        author: message.author, // Return the full author object instead of just the tag
                         content: message.content.length > 100 ? message.content.substring(0, 100) + '...' : message.content,
                         url: message.url,
                         createdAt: message.createdAt.toISOString(),
-                        author: message.author.tag,
                         yesCount: yesCount,
                         noCount: noCount,
                         hasReactions: reactions.size > 0
@@ -226,7 +226,7 @@ function createEmbed(eligibleMembers, votingMessages) {
     // Add voting messages section
     if (votingMessages.length > 0) {
         const messagesText = votingMessages.map(msg => {
-            let text = `**Author:** ${msg.author}\n**Posted:** ${moment(msg.createdAt).format('MMM DD, YYYY')}\n**Content:** ${msg.content}`;
+            let text = `**Author:** <@${msg.author.id}>\n**Posted:** ${moment(msg.createdAt).format('MMM DD, YYYY')}\n**Content:** ${msg.content}`;
             
             // Add vote counts if there are any reactions
             if (msg.hasReactions) {
