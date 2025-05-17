@@ -2,6 +2,8 @@ const { SlashCommandBuilder } = require('discord.js');
 const { google } = require('googleapis');
 const cacheManager = require('../cacheManager');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 
 const auth = new google.auth.GoogleAuth({
   keyFile: 'service_account.json',
@@ -51,34 +53,22 @@ async function getTrooperInfoFromSteamID(steamID) {
 // Helper function to check a specific battalion endpoint
 async function checkBattalionEndpoint(battalion, steamID) {
   try {
-    const targetUrl = `https://superiorservers.co/api/ssrp/cwrp/groupinfo/${battalion}`;
+    const cacheFile = path.join(__dirname, 'cache', `${battalion}.json`);
     
-    console.log(`Attempting to access: ${targetUrl} to find SteamID: ${steamID}`);
-    
-    // Make the API request with cookies and user agent
-    const response = await axios.get(targetUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': 'https://superiorservers.co/',
-        'Origin': 'https://superiorservers.co',
-        'Cookie': 'ss_session=1; ss_lastvisit=' + Math.floor(Date.now() / 1000)
-      },
-      timeout: 10000 // 10 second timeout
-    });
-    
-    // Check if the request was successful
-    if (!response.data || !response.data.success || !response.data.response || !response.data.response.players) {
-      console.error(`API request for ${battalion} returned unsuccessful response or no players`);
+    if (!fs.existsSync(cacheFile)) {
+      console.error(`Cache file for ${battalion} not found`);
       return null;
     }
     
-    // Log the number of players found
-    console.log(`Found ${response.data.response.players.length} players in ${battalion}`);
+    const cacheData = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
     
-    // Find all players with matching SteamID
-    const matchingPlayers = response.data.response.players.filter(p => p.steamid === steamID);
+    if (!cacheData || !cacheData.success || !cacheData.response || !cacheData.response.players) {
+      console.error(`Cache data for ${battalion} is invalid`);
+      return null;
+    }
+    
+    // Find matching players
+    const matchingPlayers = cacheData.response.players.filter(p => p.steamid === steamID);
     
     if (matchingPlayers.length === 0) {
       console.log(`No ${battalion} player found for SteamID: ${steamID}`);
@@ -121,11 +111,7 @@ async function checkBattalionEndpoint(battalion, steamID) {
     
     return player;
   } catch (error) {
-    console.error(`Error fetching info from ${battalion} API:`, error.message);
-    if (error.response) {
-      console.error('Error response status:', error.response.status);
-      console.error('Error response data:', JSON.stringify(error.response.data, null, 2));
-    }
+    console.error(`Error reading cache for ${battalion}:`, error.message);
     return null;
   }
 }
