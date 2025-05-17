@@ -98,8 +98,18 @@ async function checkBattalionEndpoint(battalion, steamID) {
     
     console.log(`Attempting to access: ${targetUrl} to find SteamID: ${steamID}`);
     
-    // Make the API request
-    const response = await axios.get(targetUrl);
+    // Make the API request with cookies and user agent
+    const response = await axios.get(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://superiorservers.co/',
+        'Origin': 'https://superiorservers.co',
+        'Cookie': 'ss_session=1; ss_lastvisit=' + Math.floor(Date.now() / 1000)
+      },
+      timeout: 10000 // 10 second timeout
+    });
     
     // Check if the request was successful
     if (!response.data || !response.data.success || !response.data.response || !response.data.response.players) {
