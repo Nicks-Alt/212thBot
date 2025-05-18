@@ -17,15 +17,12 @@ async function getTrooperInfoFromSteamID(steamID) {
   try {
     // Make sure the steamID is properly formatted
     const formattedSteamID = steamID.trim();
-    
     // First check the 212th endpoint
     let player = await checkBattalionEndpoint('212th', formattedSteamID);
-    
     // If not found in 212th, check 212AB
     if (!player) {
       player = await checkBattalionEndpoint('212AB', formattedSteamID);
     }
-    
     // If player not found in either battalion
     if (!player) {
       console.log(`No player found for SteamID: ${formattedSteamID} in either 212th or 212AB`);
@@ -53,22 +50,34 @@ async function getTrooperInfoFromSteamID(steamID) {
 // Helper function to check a specific battalion endpoint
 async function checkBattalionEndpoint(battalion, steamID) {
   try {
-    const cacheFile = path.join(__dirname, 'cache', `${battalion}.json`);
+    // Define the API URL based on the battalion
+    const apiUrl = `https://superiorservers.co/api/ssrp/cwrp/groupinfo/${battalion}`;
     
-    if (!fs.existsSync(cacheFile)) {
-      console.error(`Cache file for ${battalion} not found`);
+    console.log(`Fetching data from ${apiUrl}`);
+    
+    // Make the API request
+    const response = await axios.get(apiUrl);
+    const data = response.data;
+    
+    if (!data || !data.success || !data.response || !data.response.players) {
+      console.error(`API data for ${battalion} is invalid:`, JSON.stringify(data, null, 2));
       return null;
     }
     
-    const cacheData = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+    console.log(`API returned ${data.response.players.length} players for ${battalion}`);
     
-    if (!cacheData || !cacheData.success || !cacheData.response || !cacheData.response.players) {
-      console.error(`Cache data for ${battalion} is invalid`);
-      return null;
-    }
+    // Normalize the steamID for comparison
+    const normalizedSteamID = steamID.trim().toUpperCase();
     
-    // Find matching players
-    const matchingPlayers = cacheData.response.players.filter(p => p.steamid === steamID);
+    // Find matching players with normalized comparison
+    const matchingPlayers = data.response.players.filter(p => {
+      const playerSteamId = p.steamid ? p.steamid.trim().toUpperCase() : '';
+      const matches = playerSteamId === normalizedSteamID;
+      if (matches) {
+        console.log(`Found matching player: ${p.name} with SteamID: ${p.steamid}`);
+      }
+      return matches;
+    });
     
     if (matchingPlayers.length === 0) {
       console.log(`No ${battalion} player found for SteamID: ${steamID}`);
@@ -83,6 +92,7 @@ async function checkBattalionEndpoint(battalion, steamID) {
     // Filter out characters with the appropriate tag
     const validPlayers = matchingPlayers.filter(player => {
       if (!player.tags || !Array.isArray(player.tags)) {
+        console.log(`Player ${player.name} has no tags, keeping`);
         return true; // Keep players with no tags
       }
       
@@ -94,6 +104,7 @@ async function checkBattalionEndpoint(battalion, steamID) {
         return false;
       }
       
+      console.log(`Player ${player.name} doesn't have filter tag ${tagToFilter}, keeping`);
       return true;
     });
     
@@ -111,7 +122,10 @@ async function checkBattalionEndpoint(battalion, steamID) {
     
     return player;
   } catch (error) {
-    console.error(`Error reading cache for ${battalion}:`, error.message);
+    console.error(`Error fetching data from ${battalion} API:`, error.message);
+    if (error.response) {
+      console.error(`API error response:`, error.response.data);
+    }
     return null;
   }
 }
@@ -198,25 +212,9 @@ async function registerUserInDatabase(discordId, steamId, isOfficer) {
       }
     });
 
-    // Update the cache directly with the new registration
-    try {
-      console.log("Updating registration cache with new user");
-      
-      // Get the current cache data
-      const registrationData = await cacheManager.getCachedSheetData(
-        process.env.OFFICER_SPREADSHEET_ID,
-        `'Bot'!A2:C1000`,
-        'registrationdata'
-      );
-      
-      // Add the new registration to the cache
-      registrationData.push([discordId, steamId, officerValue]);
-      
-      console.log(`Cache now contains ${registrationData.length} registered users`);
-    } catch (cacheError) {
-      console.error('Error updating cache after registration:', cacheError);
-      // Continue even if cache update fails
-    }
+    // Add the new entry to the rows array we already have
+    rows.push([discordId, steamId, officerValue]);
+    console.log(`Added new entry to cache. Cache now contains ${rows.length} entries`);
 
     return { success: true };
   } catch (error) {
@@ -244,10 +242,11 @@ module.exports = {
 
   async execute(interaction) {
     // Defer the reply immediately to prevent the "InteractionNotReplied" error
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ephemeral: true});
     
     // Get the SteamID from the command option
     const steamId = interaction.options.getString('steamid');
+    console.log(`DEBUG: Registration attempt with SteamID: ${steamId}`);
     
     // Check if registering another user
     const targetUser = interaction.options.getUser('user');
@@ -288,19 +287,15 @@ module.exports = {
     // Get trooper info from the API
     console.log(`Looking up SteamID: ${steamId}`);
     const trooperInfo = await getTrooperInfoFromSteamID(steamId);
-    
     // If trooper not found, inform them they aren't registered
-    if (trooperInfo.name === 'Unknown') {
-      console.log(`SteamID ${steamId} not found in API`);
+    if (!trooperInfo) {
+      console.log(`Trooper not found for SteamID: ${steamId}`);
       await interaction.editReply({
-        content: isRegisteringOtherUser
-          ? `SteamID ${steamId} is not registered in the 212th Attack Battalion.`
-          : 'You are not registered in the 212th Attack Battalion. Please contact an administrator if you believe this is an error.',
+        content: 'Sorry, it seems you are not registered in our system. Please contact an officer for assistance.',
         ephemeral: true
       });
       return;
     }
-    
     console.log(`Found trooper: ${trooperInfo.name}, Rank: ${trooperInfo.rank}, Company: ${trooperInfo.company}`);
     
     // Check if the user is an officer
@@ -460,8 +455,6 @@ module.exports = {
       }
 
       console.log(`Successfully registered user ${discordId} in database`);
-      
-      // Send success message
       await interaction.editReply({
         content: isRegisteringOtherUser
           ? `Successfully registered ${targetUser.username}! Their nickname has been set to: ${formattedNickname}${isTargetOfficer ? ' (Officer status recognized)' : ''}${is212AB ? ' (2AB member)' : ''}`

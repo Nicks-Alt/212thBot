@@ -82,6 +82,7 @@ module.exports = {
     const registeredCommands = [
       { name: 'stats', description: 'View your 212th Attack Battalion statistics' }, // Manually add stats command
       { name: 'aar', description: 'Submit an After Action Report' }, // Manually add aar command
+      { name: 'checkbl', description: 'Check if a SteamID is blacklisted or not.' }, // Manually add checkbl command
     ];
     const officerCommands = [];
     
@@ -99,6 +100,8 @@ module.exports = {
         if (file === 'aar.js') continue;
         // Skip register.js since we manually added it
         if (file === 'register.js') continue;
+        // Skip checkbl.js since we manually added it
+        if (file === 'checkbl.js') continue;
         
         const filePath = path.join(commandsPath, 'commands', file);
         const command = require(filePath);

@@ -190,7 +190,7 @@ client.once('ready', async () => {
   try {
     await cacheManager.initializeCache();
     // Set up periodic cache refresh every 10 minutes
-    cacheManager.setupPeriodicCacheRefresh(10);
+    cacheManager.setupPeriodicCacheRefresh(4);
     console.log('Cache initialized successfully');
   } catch (error) {
     console.error('Error initializing cache:', error);
@@ -226,7 +226,6 @@ client.on('interactionCreate', async interaction => {
       await command.execute(interaction);
       return;
     }
-
     // For all other commands, defer reply and check registration
     await interaction.deferReply({ ephemeral: true });
     
@@ -262,29 +261,29 @@ client.on('interactionCreate', async interaction => {
     // User is registered and has appropriate permissions, execute the command
     await command.execute(interaction);
   } catch (error) {
-    console.error(`Error executing command ${interaction.commandName}:`, error);
+    // console.error(`Error executing command ${interaction.commandName}:`, error);
     
-    try {
-      // Handle the error response based on the interaction state
-      if (interaction.deferred) {
-        await interaction.editReply({ 
-          content: 'There was an error executing this command. Please try again later.', 
-          ephemeral: true 
-        });
-      } else if (!interaction.replied) {
-        await interaction.reply({ 
-          content: 'There was an error executing this command. Please try again later.', 
-          ephemeral: true 
-        });
-      } else {
-        await interaction.followUp({ 
-          content: 'There was an error executing this command. Please try again later.', 
-          ephemeral: true 
-        });
-      }
-    } catch (followUpError) {
-      console.error('Error sending error message:', followUpError);
-    }
+    // try {
+    //   // Handle the error response based on the interaction state
+    //   if (interaction.deferred) {
+    //     await interaction.editReply({ 
+    //       content: 'There was an error executing this command. Please try again later.', 
+    //       ephemeral: true 
+    //     });
+    //   // } else if (!interaction.replied) {
+    //   //   await interaction.editReply({ 
+    //   //     content: 'There was an error executing this command. Please try again later.', 
+    //   //     ephemeral: true 
+    //   //   });
+    //   } else {
+    //     await interaction.followUp({ 
+    //       content: 'There was an error executing this command. Please try again later.', 
+    //       ephemeral: true 
+    //     });
+    //   }
+    // } catch (followUpError) {
+    //   console.error('Error sending error message:', followUpError);
+    // }
   }
 });
 
