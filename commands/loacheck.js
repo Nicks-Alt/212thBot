@@ -82,8 +82,9 @@ module.exports = {
         const inactiveList = inactiveMembers.map(row => {
           const rank = row[0];  // Column C, index 0 after adjustment
           const name = row[2];  // Column E, index 2 after adjustment
+          const steamId = row[3] || 'Unknown';  // Column F, index 3 after adjustment (name index + 1)
           const daysSinceLastOn = row[10];  // Column M, index 10 after adjustment
-          return `${rank} ${name} - ${daysSinceLastOn} days since last online`;
+          return `${rank} ${name} (${steamId}) - ${daysSinceLastOn} days since last online`;
         }).join('\n');
         
         embed.addFields({ 
@@ -104,6 +105,7 @@ module.exports = {
         const currentLoaList = currentLoaMembers.map(row => {
           const rank = row[0];  // Column C, index 0 after adjustment
           const name = row[2];  // Column E, index 2 after adjustment
+          const steamId = row[3] || 'Unknown';  // Column F, index 3 after adjustment (name index + 1)
           const loaReason = row[11];  // Column N, index 11 after adjustment
           
           // Parse the LOA text to extract days remaining
@@ -115,7 +117,7 @@ module.exports = {
             daysRemaining = `${dayMatch[1]} days remaining`;
           }
           
-          return `${rank} ${name} - ${daysRemaining}`;
+          return `${rank} ${name} (${steamId}) - ${daysRemaining}`;
         }).join('\n');
         
         embed.addFields({ 

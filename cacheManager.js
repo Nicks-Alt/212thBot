@@ -272,80 +272,57 @@ function setupPeriodicCacheRefresh(intervalMinutes = 4) {
     let failedEntries = 0;
     
     try {
-      // Get all unique actual cache keys (not aliases)
-      const actualKeys = [...new Set(Object.values(aliasMap))];
-      const directKeys = Object.keys(cache).filter(key => !Object.values(aliasMap).includes(key));
-      const keysToRefresh = [...actualKeys, ...directKeys];
+      // Define the key sheet ranges that need to be refreshed
+      const sheetRanges = [
+        {
+          spreadsheetId: process.env.OFFICER_SPREADSHEET_ID,
+          range: `'Bot'!A2:C1000`,
+          cacheKey: 'registrationdata'
+        },
+        {
+          spreadsheetId: process.env.MAIN_SPREADSHEET_ID,
+          range: `'212th Attack Battalion'!C2:N1000`,
+          cacheKey: 'mainsheetdata'
+        },
+        {
+          spreadsheetId: process.env.OFFICER_SPREADSHEET_ID,
+          range: 'Eligible Votes!A2:B1000',
+          cacheKey: 'promosfromdb'
+        },
+        {
+          spreadsheetId: process.env.OFFICER_SPREADSHEET_ID,
+          range: `'Statistics'!A2:AA`,
+          cacheKey: 'statistics'
+        },
+        {
+          spreadsheetId: process.env.OFFICER_SPREADSHEET_ID,
+          range: `'Punishment Log'!A2:F1000`,
+          cacheKey: 'punishments'
+        },
+        {
+          spreadsheetId: process.env.OFFICER_SPREADSHEET_ID,
+          range: `'Blacklist'!A2:F1000`,
+          cacheKey: 'blacklist'
+        }
+      ];
       
-      console.log(`Found ${keysToRefresh.length} unique cache entries to refresh`);
-      
-      for (const key of keysToRefresh) {
+      // Refresh each range
+      for (const { spreadsheetId, range, cacheKey } of sheetRanges) {
         try {
-          // Extract sheet name for better logging
-          let sheetName = "unknown";
-          if (key.includes("!")) {
-            sheetName = key.split("!")[0].replace(/'/g, "");
-          } else if (key.includes(":")) {
-            const range = key.split(":")[1];
-            if (range && range.includes("!")) {
-              sheetName = range.split("!")[0].replace(/'/g, "");
-            }
-          }
+          console.log(`Refreshing cache for ${cacheKey} (${range})`);
           
-          const [spreadsheetId, range] = key.split(':');
+          // Force refresh the cache for this range
+          const data = await getCachedSheetData(
+            spreadsheetId,
+            range,
+            cacheKey,
+            true // Force refresh
+          );
           
-          if (spreadsheetId && range) {
-            await getCachedSheetData(spreadsheetId, range, key, true);
-            refreshedEntries++;
-            console.log(`Refreshed cache for ${key} (Sheet: ${sheetName})`);
-          } else {
-            // For named cache keys, we need to handle them individually
-            if (key === 'registrationdata') {
-              await getCachedSheetData(
-                process.env.OFFICER_SPREADSHEET_ID,
-                `'Bot'!A2:C1000`,
-                'registrationdata',
-                true
-              );
-              refreshedEntries++;
-            } else if (key === 'mainsheetdata') {
-              await getCachedSheetData(
-                process.env.MAIN_SPREADSHEET_ID,
-                `'212th Attack Battalion'!C:N`,
-                'mainsheetdata',
-                true
-              );
-              refreshedEntries++;
-            } else if (key === 'promosfromdb') {
-              await getCachedSheetData(
-                process.env.OFFICER_SPREADSHEET_ID,
-                'Eligible Votes!A:B',
-                'promosfromdb',
-                true
-              );
-              refreshedEntries++;
-            } else if (key === 'statistics') {
-              await getCachedSheetData(
-                process.env.OFFICER_SPREADSHEET_ID,
-                `'Statistics'!A2:AA`,
-                'statistics',
-                true
-              );
-              refreshedEntries++;
-            } else if (key === 'blacklist') {
-              await getCachedSheetData(
-                process.env.OFFICER_SPREADSHEET_ID,
-                `'Blacklist'!A2:F1000`,
-                'blacklist',
-                true
-              );
-              refreshedEntries++;
-            } else {
-              console.log(`Skipping unknown named cache key: ${key}`);
-            }
-          }
-        } catch (entryError) {
-          console.error(`Error refreshing cache entry ${key}:`, entryError);
+          refreshedEntries++;
+          console.log(`Successfully refreshed ${cacheKey} with ${data.length} rows`);
+        } catch (error) {
+          console.error(`Failed to refresh ${cacheKey}:`, error);
           failedEntries++;
         }
       }
