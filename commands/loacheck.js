@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { google } = require('googleapis');
 const cacheManager = require('../cacheManager');
 
@@ -12,11 +12,21 @@ const sheets = google.sheets({ version: 'v4', auth });
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('loacheck')
-    .setDescription('Check for members with high inactivity or active LOAs')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles), // Restrict to officers
+    .setDescription('Check for members with high inactivity or active LOAs'),
 
   async execute(interaction) {
     try {
+      // Check if the user is an officer
+      const isOfficer = await isUserOfficer(interaction.user.id);
+      
+      if (!isOfficer) {
+        await interaction.editReply({
+          content: 'This command is only available to officers.',
+          ephemeral: true
+        });
+        return;
+      }
+
       // Get data from the 212th Attack Battalion sheet using cache with the new key
       const rows = await cacheManager.getCachedSheetData(
         process.env.MAIN_SPREADSHEET_ID,
@@ -148,3 +158,27 @@ module.exports = {
     }
   }
 };
+
+// Helper function to check if a user is an officer using cache
+async function isUserOfficer(discordId) {
+  try {
+    const rows = await cacheManager.getCachedSheetData(
+      process.env.OFFICER_SPREADSHEET_ID,
+      `'Bot'!A2:C1000`,
+      'officer'
+    );
+
+    const userRow = rows.find(row => row[0] === discordId);
+    
+    // Check if column C has a true value (officer status)
+    // Google Sheets API returns "TRUE" as a string, not a boolean
+    return userRow && (userRow[2] === true || 
+                       userRow[2] === "TRUE" || 
+                       userRow[2] === "true" || 
+                       userRow[2] === 1 ||
+                       String(userRow[2]).toLowerCase() === "true");
+  } catch (error) {
+    console.error('Error checking officer status:', error);
+    return false;
+  }
+}

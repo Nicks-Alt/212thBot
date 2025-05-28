@@ -1,10 +1,12 @@
 const { SlashCommandBuilder, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, EmbedBuilder } = require('discord.js');
 const { google } = require('googleapis');
 const cacheManager = require('../cacheManager');
+const { findAARLogById } = require('../cacheManager');
+const { AARQueue, generateLogID } = require('../utils/aarQueue.js')
 
 const auth = new google.auth.GoogleAuth({
   keyFile: 'service_account.json',
-  scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
 
 const sheets = google.sheets({ version: 'v4', auth });
@@ -369,7 +371,11 @@ module.exports = {
         .addSubcommand(subcommand =>
             subcommand
                 .setName('append')
-                .setDescription('Append information to an existing AAR')
+                .setDescription('Add participants to an existing AAR log')
+                .addStringOption(option =>
+                    option.setName('logid')
+                        .setDescription('The Log ID (message ID) to add participants to')
+                        .setRequired(true)),
         )
         .addSubcommand(subcommand =>
             subcommand
@@ -403,20 +409,20 @@ module.exports = {
         
         // Map subcommands to event types
         const eventTypeMap = {
-            's1event': 'S1 Event',
-            's2event': 'S2 Event',
+            's1event': 'Server 1 Event',
+            's2event': 'Server 2 Event',
             'training': 'Training Simulation',
             'joint': 'Joint Training Simulation',
             'tryout': 'Tryout',
             'basictraining': 'Basic Training',
             'rankexam': 'Rank Exam',
-            'gccert': 'GC Certification',
-            '2abcert': '2AB Certification',
-            'arfcert': 'ARF Certification',
-            'wraithcert': 'Wraith Certification',
-            'mediccert': 'Medic Certification',
-            'heavycert': 'Heavy Certification',
-            'jsfgoldcert': 'JSF Gold Certification',
+            'gccert': 'GC Certifications',
+            '2abcert': '2AB Certifications',
+            'arfcert': 'ARF Certifications',
+            'wraithcert': 'Wraith Certifications',
+            'mediccert': 'Medic Certifications',
+            'heavycert': 'Heavy Certifications',
+            'jsfgoldcert': 'JSF Gold Certifications',
             'ncosncobt': '(S)NCO Basic Training',
             'btcert': 'Basic Training Certification (SNCO+)',
             'gmactivities': 'Game Master Activities'
@@ -487,17 +493,7 @@ module.exports = {
                 }
             }
         } else if (subcommand === 'append') {
-            if (isDeferred) {
-                await interaction.editReply({
-                    content: 'The append functionality is not yet implemented.',
-                    ephemeral: true
-                });
-            } else {
-                await interaction.reply({
-                    content: 'The append functionality is not yet implemented.',
-                    ephemeral: true
-                });
-            }
+            await handleAppendLog(interaction);
         } else if (subcommand === 'skim') {
             if (isDeferred) {
                 await interaction.editReply({
@@ -579,7 +575,7 @@ async function handleStandardEventLog(interaction, eventType) {
         
         // Look up the name from the spreadsheet using the cached function
         const name = await getTrooperNameFromSteamID(steamId);
-        
+        const logID = generateLogID(interaction);
         // Create an embed for the AAR channel - now matching the training sim style
         const aarEmbed = new EmbedBuilder()
             .setTitle(`After Action Report`)
@@ -594,14 +590,32 @@ async function handleStandardEventLog(interaction, eventType) {
                 { name: 'Summary', value: summary }
             )
             .setTimestamp()
-            .setFooter({ text: `Submitted by ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() });
+            .setFooter({ text: `Log ID: ${logID}`, iconURL: interaction.user.displayAvatarURL() });
         
         // Send the embed to the AAR channel
-        const aarChannelId = '1371424870134579300'; // You'll change this later
+        const aarChannelId = process.env.AAR_CHANNEL_ID; // You'll change this later
         const aarChannel = interaction.client.channels.cache.get(aarChannelId);
         
         if (aarChannel) {
-            await aarChannel.send({ embeds: [aarEmbed] });
+            const aarMessage = await aarChannel.send({ embeds: [aarEmbed] });
+            const actualLogID = aarMessage.id; // Get actual message ID.
+            // Update the embed footer with the correct log ID
+            const updatedEmbed = new EmbedBuilder()
+                .setTitle('After Action Report')
+                .setDescription(eventType)
+                .setColor('#FF8C00')
+                .setThumbnail('https://i.imgur.com/ushtI24.png')
+                .addFields(aarEmbed.data.fields)
+                .setTimestamp()
+                .setFooter({ text: `Log ID: ${actualLogID}`, iconURL: interaction.user.displayAvatarURL() });
+
+            await aarMessage.edit({embeds: [updatedEmbed]});
+            let data = {
+                gamemaster: gamemaster,
+                participants: participants,
+                summary: summary
+            }
+            AARQueue.addToQueue(eventType, name, steamId, data, actualLogID);
             await modalSubmission.editReply({
                 content: `Your AAR for ${eventType} has been submitted successfully.`,
                 ephemeral: true
@@ -614,8 +628,7 @@ async function handleStandardEventLog(interaction, eventType) {
                 ephemeral: true
             });
         }
-        
-    } catch (error) {
+        } catch (error) {
         console.error('Error with modal submission:', error);
         // If the error is due to timeout, we don't need to do anything
         // as the modal will just close
@@ -696,7 +709,7 @@ async function handleTrainingSimulationLog(interaction, eventType) {
         // Look up names from the spreadsheet
         const name = await getTrooperNameFromSteamID(steamId);
         const lead = await getTrooperNameFromSteamID(leadSteamId);
-        
+        const logID = generateLogID(interaction);
         // Create an embed for the AAR channel
         const aarEmbed = new EmbedBuilder()
             .setTitle(`After Action Report`)
@@ -713,14 +726,34 @@ async function handleTrainingSimulationLog(interaction, eventType) {
                 { name: 'Summary', value: summary }
             )
             .setTimestamp()
-            .setFooter({ text: `Submitted by ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() });
+            .setFooter({ text: `Log ID: ${logID}`, iconURL: interaction.user.displayAvatarURL() });
         
         // Send the embed to the AAR channel
-        const aarChannelId = '1371424870134579300'; // You'll change this later
+        const aarChannelId = process.env.AAR_CHANNEL_ID; // You'll change this later
         const aarChannel = interaction.client.channels.cache.get(aarChannelId);
         
         if (aarChannel) {
-            await aarChannel.send({ embeds: [aarEmbed] });
+            const aarMessage = await aarChannel.send({ embeds: [aarEmbed] });
+            const actualLogID = aarMessage.id; // Get actual message ID.
+            // Update the embed footer with the correct log ID
+            const updatedEmbed = new EmbedBuilder()
+                .setTitle('After Action Report')
+                .setDescription(eventType)
+                .setColor('#FF8C00')
+                .setThumbnail('https://i.imgur.com/ushtI24.png')
+                .addFields(aarEmbed.data.fields)
+                .setTimestamp()
+                .setFooter({ text: `Log ID: ${actualLogID}`, iconURL: interaction.user.displayAvatarURL() });
+
+            await aarMessage.edit({embeds: [updatedEmbed]});
+            let data = {
+                gamemaster: gamemaster,
+                lead: lead,
+                leadSteamId: leadSteamId,
+                participants: participants,
+                summary: summary
+            }
+            AARQueue.addToQueue(eventType, name, steamId, data, actualLogID);
             await modalSubmission.editReply({
                 content: `Your AAR for ${eventType} has been submitted successfully.`,
                 ephemeral: true
@@ -733,7 +766,6 @@ async function handleTrainingSimulationLog(interaction, eventType) {
                 ephemeral: true
             });
         }
-        
     } catch (error) {
         console.error('Error with training simulation submission:', error);
         // If the error is due to timeout, we don't need to do anything
@@ -815,7 +847,7 @@ async function handleJointTrainingLog(interaction, eventType, battalions) {
         // Look up names from the spreadsheet
         const name = await getTrooperNameFromSteamID(steamId);
         const lead = await getTrooperNameFromSteamID(leadSteamId);
-        
+        const logID = generateLogID(interaction);
         // Format the battalions list
         const battalionsText = battalions.length > 0 
             ? battalions.join(', ') 
@@ -838,14 +870,35 @@ async function handleJointTrainingLog(interaction, eventType, battalions) {
                 { name: 'Summary', value: summary }
             )
             .setTimestamp()
-            .setFooter({ text: `Submitted by ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() });
+            .setFooter({ text: `Log ID: ${logID}`, iconURL: interaction.user.displayAvatarURL() });
         
         // Send the embed to the AAR channel
-        const aarChannelId = '1371424870134579300'; // You'll change this later
+        const aarChannelId = process.env.AAR_CHANNEL_ID; // You'll change this later
         const aarChannel = interaction.client.channels.cache.get(aarChannelId);
         
         if (aarChannel) {
-            await aarChannel.send({ embeds: [aarEmbed] });
+            const aarMessage = await aarChannel.send({ embeds: [aarEmbed] });
+            const actualLogID = aarMessage.id; // Get actual message ID.
+            // Update the embed footer with the correct log ID
+            const updatedEmbed = new EmbedBuilder()
+                .setTitle('After Action Report')
+                .setDescription(eventType)
+                .setColor('#FF8C00')
+                .setThumbnail('https://i.imgur.com/ushtI24.png')
+                .addFields(aarEmbed.data.fields)
+                .setTimestamp()
+                .setFooter({ text: `Log ID: ${actualLogID}`, iconURL: interaction.user.displayAvatarURL() });
+
+            await aarMessage.edit({embeds: [updatedEmbed]});
+            let data = {
+                gamemaster: gamemaster,
+                lead: lead,
+                leadSteamId: leadSteamId,
+                participants: participants,
+                summary: summary,
+                battalions: battalions.join(', ') // convert array to string
+            }
+            AARQueue.addToQueue(eventType, name, steamId, data, actualLogID);
             await modalSubmission.editReply({
                 content: `Your AAR for ${eventType} has been submitted successfully.`,
                 ephemeral: true
@@ -858,7 +911,6 @@ async function handleJointTrainingLog(interaction, eventType, battalions) {
                 ephemeral: true
             });
         }
-        
     } catch (error) {
         console.error('Error with joint training submission:', error);
         // If the error is due to timeout, we don't need to do anything
@@ -942,7 +994,7 @@ async function handleTryoutLog(interaction, eventType) {
         // Look up names from the spreadsheet
         const name = await getTrooperNameFromSteamID(steamId);
         const officerName = await getTrooperNameFromSteamID(officerSteamId);
-        
+        const logID = generateLogID(interaction);
         // Create an embed for the AAR channel
         const aarEmbed = new EmbedBuilder()
             .setTitle(`After Action Report`)
@@ -959,14 +1011,34 @@ async function handleTryoutLog(interaction, eventType) {
                 { name: 'CTs that passed', value: passedCTs }
             )
             .setTimestamp()
-            .setFooter({ text: `Submitted by ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() });
+            .setFooter({ text: `Log ID: ${logID}`, iconURL: interaction.user.displayAvatarURL() });
         
         // Send the embed to the AAR channel
-        const aarChannelId = '1371424870134579300'; // You'll change this later
+        const aarChannelId = process.env.AAR_CHANNEL_ID; // You'll change this later
         const aarChannel = interaction.client.channels.cache.get(aarChannelId);
         
         if (aarChannel) {
-            await aarChannel.send({ embeds: [aarEmbed] });
+            const aarMessage = await aarChannel.send({ embeds: [aarEmbed] });
+            const actualLogID = aarMessage.id; // Get actual message ID.
+            // Update the embed footer with the correct log ID
+            const updatedEmbed = new EmbedBuilder()
+                .setTitle('After Action Report')
+                .setDescription(eventType)
+                .setColor('#FF8C00')
+                .setThumbnail('https://i.imgur.com/ushtI24.png')
+                .addFields(aarEmbed.data.fields)
+                .setTimestamp()
+                .setFooter({ text: `Log ID: ${actualLogID}`, iconURL: interaction.user.displayAvatarURL() });
+
+            await aarMessage.edit({embeds: [updatedEmbed]});
+            let data = {
+                officerName: officerName,
+                officerSteamId: officerSteamId,
+                startingCTs: startingCTs,
+                endingCTs: endingCTs,
+                passedCTs: passedCTs
+            }
+            AARQueue.addToQueue(eventType, name, steamId, data, actualLogID);
             await modalSubmission.editReply({
                 content: `Your AAR for ${eventType} has been submitted successfully.`,
                 ephemeral: true
@@ -979,7 +1051,6 @@ async function handleTryoutLog(interaction, eventType) {
                 ephemeral: true
             });
         }
-        
     } catch (error) {
         console.error('Error with tryout submission:', error);
         // If the error is due to timeout, we don't need to do anything
@@ -1005,13 +1076,31 @@ async function handleBasicTrainingLog(interaction, eventType) {
         .setLabel('PVT\'s SteamID')
         .setStyle(TextInputStyle.Short)
         .setRequired(true);
+    const pvt2SteamIdInput = new TextInputBuilder()
+        .setCustomId('pvt2SteamId')
+        .setLabel('PVT #2\'s SteamID')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false);
+    const pvt3SteamIdInput = new TextInputBuilder()
+        .setCustomId('pvt3SteamId')
+        .setLabel('PVT #3\'s SteamID')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false);
+    const pvt4SteamIdInput = new TextInputBuilder()
+        .setCustomId('pvt4SteamId')
+        .setLabel('PVT #4\'s SteamID')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false);
 
     // Add inputs to rows
     const steamIdRow = new ActionRowBuilder().addComponents(steamIdInput);
     const pvtSteamIdRow = new ActionRowBuilder().addComponents(pvtSteamIdInput);
+    const pvt2SteamIdRow = new ActionRowBuilder().addComponents(pvt2SteamIdInput);
+    const pvt3SteamIdRow = new ActionRowBuilder().addComponents(pvt3SteamIdInput);
+    const pvt4SteamIdRow = new ActionRowBuilder().addComponents(pvt4SteamIdInput);
 
     // Add rows to the modal
-    modal.addComponents(steamIdRow, pvtSteamIdRow);
+    modal.addComponents(steamIdRow, pvtSteamIdRow, pvt2SteamIdRow, pvt3SteamIdRow, pvt4SteamIdRow);
 
     // Show the modal to the user
     await interaction.showModal(modal);
@@ -1029,14 +1118,19 @@ async function handleBasicTrainingLog(interaction, eventType) {
         // Get the values from the modal
         const steamId = modalSubmission.fields.getTextInputValue('steamId');
         const pvtSteamId = modalSubmission.fields.getTextInputValue('pvtSteamId');
-        
+        const pvt2SteamId = modalSubmission.fields.getTextInputValue('pvt2SteamId') || '';
+        const pvt3SteamId = modalSubmission.fields.getTextInputValue('pvt3SteamId') || '';
+        const pvt4SteamId = modalSubmission.fields.getTextInputValue('pvt4SteamId') || '';
         // Defer the reply to give time for spreadsheet lookup
         await modalSubmission.deferReply({ ephemeral: true });
         
         // Look up names from the spreadsheet
         const instructorName = await getTrooperNameFromSteamID(steamId);
         const pvtName = await getTrooperNameFromSteamID(pvtSteamId);
-        
+        const pvt2Name = await getTrooperNameFromSteamID(pvt2SteamId);
+        const pvt3Name = await getTrooperNameFromSteamID(pvt3SteamId);
+        const pvt4Name = await getTrooperNameFromSteamID(pvt4SteamId);
+        const logID = generateLogID(interaction);
         // Create an embed for the AAR channel
         const aarEmbed = new EmbedBuilder()
             .setTitle(`After Action Report`)
@@ -1046,18 +1140,54 @@ async function handleBasicTrainingLog(interaction, eventType) {
             .addFields(
                 { name: 'Instructor', value: instructorName, inline: false },
                 { name: 'Instructor SteamID', value: steamId, inline: false },
-                { name: 'PVT', value: pvtName, inline: false },
-                { name: 'PVT SteamID', value: pvtSteamId, inline: false }
+                { name: 'PVT #1', value: pvtName, inline: false },
+                { name: 'PVT #1 SteamID', value: pvtSteamId, inline: false },
+                
             )
             .setTimestamp()
-            .setFooter({ text: `Submitted by ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() });
-        
+            .setFooter({ text: `Log ID: ${logID}`, iconURL: interaction.user.displayAvatarURL() });
+        if (pvt2SteamId) {
+            aarEmbed.addFields(
+                { name: 'PVT #2', value: pvt2Name, inline: false },
+                { name: 'PVT #2 SteamID', value: pvt2SteamId, inline: false },
+            )
+        }
+        if (pvt3SteamId) {
+            aarEmbed.addFields(
+                { name: 'PVT #3', value: pvt3Name, inline: false },
+                { name: 'PVT #3 SteamID', value: pvt3SteamId, inline: false },
+            )
+        }
+        if (pvt4SteamId) {
+            aarEmbed.addFields(
+                { name: 'PVT #4', value: pvt4Name, inline: false },
+                { name: 'PVT #4 SteamID', value: pvt4SteamId, inline: false },
+            )
+        }
         // Send the embed to the AAR channel
-        const aarChannelId = '1371424870134579300'; // You'll change this later
+        const aarChannelId = process.env.AAR_CHANNEL_ID; // You'll change this later
         const aarChannel = interaction.client.channels.cache.get(aarChannelId);
         
         if (aarChannel) {
-            await aarChannel.send({ embeds: [aarEmbed] });
+            const aarMessage = await aarChannel.send({ embeds: [aarEmbed] });
+            const actualLogID = aarMessage.id; // Get actual message ID.
+            // Update the embed footer with the correct log ID
+            const updatedEmbed = new EmbedBuilder()
+                .setTitle('After Action Report')
+                .setDescription(eventType)
+                .setColor('#FF8C00')
+                .setThumbnail('https://i.imgur.com/ushtI24.png')
+                .addFields(aarEmbed.data.fields)
+                .setTimestamp()
+                .setFooter({ text: `Log ID: ${actualLogID}`, iconURL: interaction.user.displayAvatarURL() });
+
+            await aarMessage.edit({embeds: [updatedEmbed]});
+            let data = {
+                steamId: steamId,
+                pvtNames: [pvtName, pvt2Name, pvt3Name, pvt4Name],
+                pvtSteamIds: [pvtSteamId, pvt2SteamId, pvt3SteamId, pvt4SteamId],
+            }
+            AARQueue.addToQueue(eventType, instructorName, steamId, data, actualLogID);
             await modalSubmission.editReply({
                 content: `Your AAR for ${eventType} has been submitted successfully.`,
                 ephemeral: true
@@ -1070,7 +1200,6 @@ async function handleBasicTrainingLog(interaction, eventType) {
                 ephemeral: true
             });
         }
-        
     } catch (error) {
         console.error('Error with basic training submission:', error);
         // If the error is due to timeout, we don't need to do anything
@@ -1132,12 +1261,12 @@ async function handleRankExamLog(interaction, eventType) {
         // Look up names from the spreadsheet
         const examinerName = await getTrooperNameFromSteamID(steamId);
         const participantName = await getTrooperNameFromSteamID(participantSteamId);
-        
+        const logID = generateLogID(interaction);
         // Create an embed for the AAR channel
         const aarEmbed = new EmbedBuilder()
             .setTitle(`After Action Report`)
             .setDescription(`${eventType}`)
-            .setColor(result === 'Pass' ? '#00FF00' : '#FF0000') // Green for pass, red for fail
+            .setColor(result === 'Pass' ? '#FF8C00' : '#FF8C00') // Green for pass, red for fail
             .setThumbnail('https://i.imgur.com/ushtI24.png')
             .addFields(
                 { name: 'Examiner', value: examinerName, inline: false },
@@ -1149,14 +1278,34 @@ async function handleRankExamLog(interaction, eventType) {
                 { name: 'Result', value: result, inline: true }
             )
             .setTimestamp()
-            .setFooter({ text: `Submitted by ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() });
+            .setFooter({ text: `Log ID: ${logID}`, iconURL: interaction.user.displayAvatarURL() });
         
         // Send the embed to the AAR channel
-        const aarChannelId = '1371424870134579300'; // You'll change this later
+        const aarChannelId = process.env.AAR_CHANNEL_ID; // You'll change this later
         const aarChannel = interaction.client.channels.cache.get(aarChannelId);
         
         if (aarChannel) {
-            await aarChannel.send({ embeds: [aarEmbed] });
+            const aarMessage = await aarChannel.send({ embeds: [aarEmbed] });
+            const actualLogID = aarMessage.id; // Get actual message ID.
+            // Update the embed footer with the correct log ID
+            const updatedEmbed = new EmbedBuilder()
+                .setTitle('After Action Report')
+                .setDescription(eventType)
+                .setColor('#FF8C00')
+                .setThumbnail('https://i.imgur.com/ushtI24.png')
+                .addFields(aarEmbed.data.fields)
+                .setTimestamp()
+                .setFooter({ text: `Log ID: ${actualLogID}`, iconURL: interaction.user.displayAvatarURL() });
+
+            await aarMessage.edit({embeds: [updatedEmbed]});
+            let data = {
+                participantName: participantName,
+                participantSteamId: participantSteamId, 
+                group: group,
+                testing: testing,
+                result: result
+            }
+            AARQueue.addToQueue(eventType, examinerName, steamId, data, actualLogID);
             await modalSubmission.editReply({
                 content: `Your AAR for ${eventType} has been submitted successfully.`,
                 ephemeral: true
@@ -1169,7 +1318,6 @@ async function handleRankExamLog(interaction, eventType) {
                 ephemeral: true
             });
         }
-        
     } catch (error) {
         console.error('Error with rank exam submission:', error);
         // If the error is due to timeout, we don't need to do anything
@@ -1245,13 +1393,13 @@ async function handleGCCertLog(interaction, eventType) {
         // Look up names from the spreadsheet
         const examinerName = await getTrooperNameFromSteamID(steamId);
         const participantName = await getTrooperNameFromSteamID(participantSteamId);
-        
+        const logID = generateLogID(interaction);
         // Determine the color based on the result
         let embedColor;
         if (result === 'Pass') {
-            embedColor = '#00FF00'; // Green for pass
+            embedColor = '#FF8C00'; // Green for pass
         } else if (result === 'Fail') {
-            embedColor = '#FF0000'; // Red for fail
+            embedColor = '#FF8C00'; // Red for fail
         } else {
             embedColor = '#FF8C00'; // Standard orange color for N/A
         }
@@ -1272,14 +1420,34 @@ async function handleGCCertLog(interaction, eventType) {
                 { name: 'Result', value: result, inline: true }
             )
             .setTimestamp()
-            .setFooter({ text: `Submitted by ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() });
+            .setFooter({ text: `Log ID: ${logID}`, iconURL: interaction.user.displayAvatarURL() });
         
         // Send the embed to the AAR channel
-        const aarChannelId = '1371424870134579300'; // You'll change this later
+        const aarChannelId = process.env.AAR_CHANNEL_ID; // You'll change this later
         const aarChannel = interaction.client.channels.cache.get(aarChannelId);
         
         if (aarChannel) {
-            await aarChannel.send({ embeds: [aarEmbed] });
+            const aarMessage = await aarChannel.send({ embeds: [aarEmbed] });
+            const actualLogID = aarMessage.id; // Get actual message ID.
+            // Update the embed footer with the correct log ID
+            const updatedEmbed = new EmbedBuilder()
+                .setTitle('After Action Report')
+                .setDescription(eventType)
+                .setColor('#FF8C00')
+                .setThumbnail('https://i.imgur.com/ushtI24.png')
+                .addFields(aarEmbed.data.fields)
+                .setTimestamp()
+                .setFooter({ text: `Log ID: ${actualLogID}`, iconURL: interaction.user.displayAvatarURL() });
+
+            await aarMessage.edit({embeds: [updatedEmbed]});
+            let data = {
+                participantName: participantName,
+                participantSteamId: participantSteamId,
+                gamemaster: gamemaster,
+                result: result,
+                trialmaybecert: certification
+            }
+            AARQueue.addToQueue(eventType, examinerName, steamId, data, actualLogID);
             await modalSubmission.editReply({
                 content: `Your AAR for ${eventType} has been submitted successfully.`,
                 ephemeral: true
@@ -1292,7 +1460,6 @@ async function handleGCCertLog(interaction, eventType) {
                 ephemeral: true
             });
         }
-        
     } catch (error) {
         console.error('Error with GC certification submission:', error);
         // If the error is due to timeout, we don't need to do anything
@@ -1360,12 +1527,12 @@ async function handle2ABCertLog(interaction, eventType) {
         // Look up names from the spreadsheet
         const examinerName = await getTrooperNameFromSteamID(steamId);
         const participantName = await getTrooperNameFromSteamID(participantSteamId);
-        
+        const logID = generateLogID(interaction);
         // Create an embed for the AAR channel
         const aarEmbed = new EmbedBuilder()
             .setTitle(`After Action Report`)
             .setDescription(`${eventType}`)
-            .setColor(result === 'Pass' ? '#00FF00' : '#FF0000') // Green for pass, red for fail
+            .setColor(result === 'Pass' ? '#FF8C00' : '#FF8C00') // Green for pass, red for fail
             .setThumbnail('https://i.imgur.com/ushtI24.png')
             .addFields(
                 { name: 'Examiner', value: examinerName, inline: false },
@@ -1376,14 +1543,33 @@ async function handle2ABCertLog(interaction, eventType) {
                 { name: 'Result', value: result, inline: true }
             )
             .setTimestamp()
-            .setFooter({ text: `Submitted by ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() });
+            .setFooter({ text: `Log ID: ${logID}`, iconURL: interaction.user.displayAvatarURL() });
         
         // Send the embed to the AAR channel
-        const aarChannelId = '1371424870134579300'; // You'll change this later
+        const aarChannelId = process.env.AAR_CHANNEL_ID; // You'll change this later
         const aarChannel = interaction.client.channels.cache.get(aarChannelId);
         
         if (aarChannel) {
-            await aarChannel.send({ embeds: [aarEmbed] });
+            const aarMessage = await aarChannel.send({ embeds: [aarEmbed] });
+            const actualLogID = aarMessage.id; // Get actual message ID.
+            // Update the embed footer with the correct log ID
+            const updatedEmbed = new EmbedBuilder()
+                .setTitle('After Action Report')
+                .setDescription(eventType)
+                .setColor('#FF8C00')
+                .setThumbnail('https://i.imgur.com/ushtI24.png')
+                .addFields(aarEmbed.data.fields)
+                .setTimestamp()
+                .setFooter({ text: `Log ID: ${actualLogID}`, iconURL: interaction.user.displayAvatarURL() });
+
+            await aarMessage.edit({embeds: [updatedEmbed]});
+            let data = {
+                participantName: participantName,
+                participantSteamId: participantSteamId,
+                gamemaster: gamemaster,
+                result: result
+            }
+            AARQueue.addToQueue(eventType, examinerName, steamId, data, actualLogID);
             await modalSubmission.editReply({
                 content: `Your AAR for ${eventType} has been submitted successfully.`,
                 ephemeral: true
@@ -1396,7 +1582,6 @@ async function handle2ABCertLog(interaction, eventType) {
                 ephemeral: true
             });
         }
-        
     } catch (error) {
         console.error('Error with 2AB certification submission:', error);
         // If the error is due to timeout, we don't need to do anything
@@ -1465,12 +1650,12 @@ async function handleARFCertLog(interaction, eventType) {
         // Look up names from the spreadsheet
         const examinerName = await getTrooperNameFromSteamID(steamId);
         const participantName = await getTrooperNameFromSteamID(participantSteamId);
-        
+        const logID = generateLogID(interaction);
         // Create an embed for the AAR channel
         const aarEmbed = new EmbedBuilder()
             .setTitle(`After Action Report`)
             .setDescription(`${eventType}`)
-            .setColor(result === 'Pass' ? '#00FF00' : '#FF0000') // Green for pass, red for fail
+            .setColor(result === 'Pass' ? '#FF8C00' : '#FF8C00') // Green for pass, red for fail
             .setThumbnail('https://i.imgur.com/ushtI24.png')
             .addFields(
                 { name: 'Examiner', value: examinerName, inline: false },
@@ -1482,14 +1667,34 @@ async function handleARFCertLog(interaction, eventType) {
                 { name: 'Result', value: result, inline: true }
             )
             .setTimestamp()
-            .setFooter({ text: `Submitted by ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() });
+            .setFooter({ text: `Log ID: ${logID}`, iconURL: interaction.user.displayAvatarURL() });
         
         // Send the embed to the AAR channel
-        const aarChannelId = '1371424870134579300'; // You'll change this later
+        const aarChannelId = process.env.AAR_CHANNEL_ID; // You'll change this later
         const aarChannel = interaction.client.channels.cache.get(aarChannelId);
         
         if (aarChannel) {
-            await aarChannel.send({ embeds: [aarEmbed] });
+            const aarMessage = await aarChannel.send({ embeds: [aarEmbed] });
+            const actualLogID = aarMessage.id; // Get actual message ID.
+            // Update the embed footer with the correct log ID
+            const updatedEmbed = new EmbedBuilder()
+                .setTitle('After Action Report')
+                .setDescription(eventType)
+                .setColor('#FF8C00')
+                .setThumbnail('https://i.imgur.com/ushtI24.png')
+                .addFields(aarEmbed.data.fields)
+                .setTimestamp()
+                .setFooter({ text: `Log ID: ${actualLogID}`, iconURL: interaction.user.displayAvatarURL() });
+
+            await aarMessage.edit({embeds: [updatedEmbed]});
+            let data = {
+                participantName: participantName,
+                participantSteamId: participantSteamId,
+                gamemaster: gamemaster,
+                certification: certification,
+                result: result
+            }
+            AARQueue.addToQueue(eventType, instructorName, steamId, data, actualLogID);
             await modalSubmission.editReply({
                 content: `Your AAR for ${eventType} has been submitted successfully.`,
                 ephemeral: true
@@ -1502,7 +1707,6 @@ async function handleARFCertLog(interaction, eventType) {
                 ephemeral: true
             });
         }
-        
     } catch (error) {
         console.error('Error with ARF certification submission:', error);
         // If the error is due to timeout, we don't need to do anything
@@ -1570,12 +1774,12 @@ async function handleWraithCertLog(interaction, eventType) {
         // Look up names from the spreadsheet
         const examinerName = await getTrooperNameFromSteamID(steamId);
         const participantName = await getTrooperNameFromSteamID(participantSteamId);
-        
+        const logID = generateLogID(interaction);
         // Create an embed for the AAR channel
         const aarEmbed = new EmbedBuilder()
             .setTitle(`After Action Report`)
             .setDescription(`${eventType}`)
-            .setColor(result === 'Pass' ? '#00FF00' : '#FF0000') // Green for pass, red for fail
+            .setColor(result === 'Pass' ? '#FF8C00' : '#FF8C00') // Green for pass, red for fail
             .setThumbnail('https://i.imgur.com/ushtI24.png')
             .addFields(
                 { name: 'Examiner', value: examinerName, inline: false },
@@ -1587,14 +1791,34 @@ async function handleWraithCertLog(interaction, eventType) {
                 { name: 'Result', value: result, inline: true }
             )
             .setTimestamp()
-            .setFooter({ text: `Submitted by ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() });
+            .setFooter({ text: `Log ID: ${logID}`, iconURL: interaction.user.displayAvatarURL() });
         
         // Send the embed to the AAR channel
-        const aarChannelId = '1371424870134579300'; // You'll change this later
+        const aarChannelId = process.env.AAR_CHANNEL_ID; // You'll change this later
         const aarChannel = interaction.client.channels.cache.get(aarChannelId);
         
         if (aarChannel) {
-            await aarChannel.send({ embeds: [aarEmbed] });
+            const aarMessage = await aarChannel.send({ embeds: [aarEmbed] });
+            const actualLogID = aarMessage.id; // Get actual message ID.
+            // Update the embed footer with the correct log ID
+            const updatedEmbed = new EmbedBuilder()
+                .setTitle('After Action Report')
+                .setDescription(eventType)
+                .setColor('#FF8C00')
+                .setThumbnail('https://i.imgur.com/ushtI24.png')
+                .addFields(aarEmbed.data.fields)
+                .setTimestamp()
+                .setFooter({ text: `Log ID: ${actualLogID}`, iconURL: interaction.user.displayAvatarURL() });
+
+            await aarMessage.edit({embeds: [updatedEmbed]});
+            let data = {
+                participantName: participantName,
+                participantSteamId: participantSteamId,
+                gamemaster: gamemaster,
+                certification: certification,
+                result: result
+            }
+            AARQueue.addToQueue(eventType, instructorName, steamId, data, actualLogID);
             await modalSubmission.editReply({
                 content: `Your AAR for ${eventType} has been submitted successfully.`,
                 ephemeral: true
@@ -1607,7 +1831,6 @@ async function handleWraithCertLog(interaction, eventType) {
                 ephemeral: true
             });
         }
-        
     } catch (error) {
         console.error('Error with Wraith certification submission:', error);
         // If the error is due to timeout, we don't need to do anything
@@ -1675,12 +1898,12 @@ async function handleMedicCertLog(interaction, eventType) {
         // Look up names from the spreadsheet
         const examinerName = await getTrooperNameFromSteamID(steamId);
         const participantName = await getTrooperNameFromSteamID(participantSteamId);
-        
+        const logID = generateLogID(interaction);
         // Create an embed for the AAR channel
         const aarEmbed = new EmbedBuilder()
             .setTitle(`After Action Report`)
             .setDescription(`${eventType}`)
-            .setColor(result === 'Pass' ? '#00FF00' : '#FF0000') // Green for pass, red for fail
+            .setColor(result === 'Pass' ? '#FF8C00' : '#FF8C00') // Green for pass, red for fail
             .setThumbnail('https://i.imgur.com/ushtI24.png')
             .addFields(
                 { name: 'Examiner', value: examinerName, inline: false },
@@ -1692,14 +1915,34 @@ async function handleMedicCertLog(interaction, eventType) {
                 { name: 'Result', value: result, inline: true }
             )
             .setTimestamp()
-            .setFooter({ text: `Submitted by ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() });
+            .setFooter({ text: `Log ID: ${logID}`, iconURL: interaction.user.displayAvatarURL() });
         
         // Send the embed to the AAR channel
-        const aarChannelId = '1371424870134579300'; // You'll change this later
+        const aarChannelId = process.env.AAR_CHANNEL_ID; // You'll change this later
         const aarChannel = interaction.client.channels.cache.get(aarChannelId);
         
         if (aarChannel) {
-            await aarChannel.send({ embeds: [aarEmbed] });
+            const aarMessage = await aarChannel.send({ embeds: [aarEmbed] });
+            const actualLogID = aarMessage.id; // Get actual message ID.
+            // Update the embed footer with the correct log ID
+            const updatedEmbed = new EmbedBuilder()
+                .setTitle('After Action Report')
+                .setDescription(eventType)
+                .setColor('#FF8C00')
+                .setThumbnail('https://i.imgur.com/ushtI24.png')
+                .addFields(aarEmbed.data.fields)
+                .setTimestamp()
+                .setFooter({ text: `Log ID: ${actualLogID}`, iconURL: interaction.user.displayAvatarURL() });
+
+            await aarMessage.edit({embeds: [updatedEmbed]});
+            let data = {
+                participantName: participantName,
+                participantSteamId: participantSteamId,
+                gamemaster: gamemaster,
+                certification: certification,
+                result: result
+            }
+            AARQueue.addToQueue(eventType, instructorName, steamId, data, actualLogID);
             await modalSubmission.editReply({
                 content: `Your AAR for ${eventType} has been submitted successfully.`,
                 ephemeral: true
@@ -1712,7 +1955,6 @@ async function handleMedicCertLog(interaction, eventType) {
                 ephemeral: true
             });
         }
-        
     } catch (error) {
         console.error('Error with Medic certification submission:', error);
         // If the error is due to timeout, we don't need to do anything
@@ -1780,12 +2022,12 @@ async function handleHeavyCertLog(interaction, eventType) {
         // Look up names from the spreadsheet
         const examinerName = await getTrooperNameFromSteamID(steamId);
         const participantName = await getTrooperNameFromSteamID(participantSteamId);
-        
+        const logID = generateLogID(interaction);
         // Create an embed for the AAR channel
         const aarEmbed = new EmbedBuilder()
             .setTitle(`After Action Report`)
             .setDescription(`${eventType}`)
-            .setColor(result === 'Pass' ? '#00FF00' : '#FF0000') // Green for pass, red for fail
+            .setColor(result === 'Pass' ? '#FF8C00' : '#FF8C00') // Green for pass, red for fail
             .setThumbnail('https://i.imgur.com/ushtI24.png')
             .addFields(
                 { name: 'Examiner', value: examinerName, inline: false },
@@ -1797,14 +2039,34 @@ async function handleHeavyCertLog(interaction, eventType) {
                 { name: 'Result', value: result, inline: true }
             )
             .setTimestamp()
-            .setFooter({ text: `Submitted by ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() });
+            .setFooter({ text: `Log ID: ${logID}`, iconURL: interaction.user.displayAvatarURL() });
         
         // Send the embed to the AAR channel
-        const aarChannelId = '1371424870134579300'; // You'll change this later
+        const aarChannelId = process.env.AAR_CHANNEL_ID; // You'll change this later
         const aarChannel = interaction.client.channels.cache.get(aarChannelId);
         
         if (aarChannel) {
-            await aarChannel.send({ embeds: [aarEmbed] });
+            const aarMessage = await aarChannel.send({ embeds: [aarEmbed] });
+            const actualLogID = aarMessage.id; // Get actual message ID.
+            // Update the embed footer with the correct log ID
+            const updatedEmbed = new EmbedBuilder()
+                .setTitle('After Action Report')
+                .setDescription(eventType)
+                .setColor('#FF8C00')
+                .setThumbnail('https://i.imgur.com/ushtI24.png')
+                .addFields(aarEmbed.data.fields)
+                .setTimestamp()
+                .setFooter({ text: `Log ID: ${actualLogID}`, iconURL: interaction.user.displayAvatarURL() });
+
+            await aarMessage.edit({embeds: [updatedEmbed]});
+            let data = {
+                participantName: participantName,
+                participantSteamId: participantSteamId,
+                gamemaster: gamemaster,
+                certification: certification,
+                result: result
+            }
+            AARQueue.addToQueue(eventType, instructorName, steamId, data, actualLogID);
             await modalSubmission.editReply({
                 content: `Your AAR for ${eventType} has been submitted successfully.`,
                 ephemeral: true
@@ -1817,7 +2079,6 @@ async function handleHeavyCertLog(interaction, eventType) {
                 ephemeral: true
             });
         }
-        
     } catch (error) {
         console.error('Error with Heavy certification submission:', error);
         // If the error is due to timeout, we don't need to do anything
@@ -1885,12 +2146,12 @@ async function handleJSFGoldCertLog(interaction, eventType) {
         // Look up names from the spreadsheet
         const examinerName = await getTrooperNameFromSteamID(steamId);
         const participantName = await getTrooperNameFromSteamID(participantSteamId);
-        
+        const logID = generateLogID(interaction);
         // Create an embed for the AAR channel
         const aarEmbed = new EmbedBuilder()
             .setTitle(`After Action Report`)
             .setDescription(`${eventType}`)
-            .setColor(result === 'Pass' ? '#00FF00' : '#FF0000') // Green for pass, red for fail
+            .setColor(result === 'Pass' ? '#FF8C00' : '#FF8C00') // Green for pass, red for fail
             .setThumbnail('https://i.imgur.com/ushtI24.png')
             .addFields(
                 { name: 'Examiner', value: examinerName, inline: false },
@@ -1902,14 +2163,34 @@ async function handleJSFGoldCertLog(interaction, eventType) {
                 { name: 'Result', value: result, inline: true }
             )
             .setTimestamp()
-            .setFooter({ text: `Submitted by ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() });
+            .setFooter({ text: `Log ID: ${logID}`, iconURL: interaction.user.displayAvatarURL() });
         
         // Send the embed to the AAR channel
-        const aarChannelId = '1371424870134579300'; // You'll change this later
+        const aarChannelId = process.env.AAR_CHANNEL_ID; // You'll change this later
         const aarChannel = interaction.client.channels.cache.get(aarChannelId);
         
         if (aarChannel) {
-            await aarChannel.send({ embeds: [aarEmbed] });
+            const aarMessage = await aarChannel.send({ embeds: [aarEmbed] });
+            const actualLogID = aarMessage.id; // Get actual message ID.
+            // Update the embed footer with the correct log ID
+            const updatedEmbed = new EmbedBuilder()
+                .setTitle('After Action Report')
+                .setDescription(eventType)
+                .setColor('#FF8C00')
+                .setThumbnail('https://i.imgur.com/ushtI24.png')
+                .addFields(aarEmbed.data.fields)
+                .setTimestamp()
+                .setFooter({ text: `Log ID: ${actualLogID}`, iconURL: interaction.user.displayAvatarURL() });
+
+            await aarMessage.edit({embeds: [updatedEmbed]});
+            let data = {
+                participantName: participantName,
+                participantSteamId: participantSteamId,
+                gamemaster: gamemaster,
+                certification: certification,
+                result: result
+            }
+            AARQueue.addToQueue(eventType, instructorName, steamId, data, actualLogID);
             await modalSubmission.editReply({
                 content: `Your AAR for ${eventType} has been submitted successfully.`,
                 ephemeral: true
@@ -1922,7 +2203,6 @@ async function handleJSFGoldCertLog(interaction, eventType) {
                 ephemeral: true
             });
         }
-        
     } catch (error) {
         console.error('Error with JSF Gold certification submission:', error);
         // If the error is due to timeout, we don't need to do anything
@@ -1989,7 +2269,7 @@ async function handleNCOSNCOBTLog(interaction, eventType) {
         // Look up names from the spreadsheet
         const instructorName = await getTrooperNameFromSteamID(steamId);
         const participantName = await getTrooperNameFromSteamID(participantSteamId);
-        
+        const logID = generateLogID(interaction);
         // Create an embed for the AAR channel
         const aarEmbed = new EmbedBuilder()
             .setTitle(`After Action Report`)
@@ -2005,14 +2285,31 @@ async function handleNCOSNCOBTLog(interaction, eventType) {
                 { name: 'Gamemaster', value: gamemaster, inline: false }
             )
             .setTimestamp()
-            .setFooter({ text: `Submitted by ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() });
+            .setFooter({ text: `Log ID: ${logID}`, iconURL: interaction.user.displayAvatarURL() });
         
         // Send the embed to the AAR channel
-        const aarChannelId = '1371424870134579300'; // You'll change this later
+        const aarChannelId = process.env.AAR_CHANNEL_ID; // You'll change this later
         const aarChannel = interaction.client.channels.cache.get(aarChannelId);
         
         if (aarChannel) {
-            await aarChannel.send({ embeds: [aarEmbed] });
+            const aarMessage = await aarChannel.send({ embeds: [aarEmbed] });
+            const actualLogID = aarMessage.id; // Get actual message ID.
+            // Update the embed footer with the correct log ID
+            const updatedEmbed = new EmbedBuilder()
+                .setTitle('After Action Report')
+                .setDescription(eventType)
+                .setColor('#FF8C00')
+                .setThumbnail('https://i.imgur.com/ushtI24.png')
+                .addFields(aarEmbed.data.fields)
+                .setTimestamp()
+                .setFooter({ text: `Log ID: ${actualLogID}`, iconURL: interaction.user.displayAvatarURL() });
+
+            await aarMessage.edit({embeds: [updatedEmbed]});
+            let data = {
+                participantName: participantName,
+                completed: completed
+            }
+            AARQueue.addToQueue(eventType, instructorName, steamId, data, actualLogID);
             await modalSubmission.editReply({
                 content: `Your AAR for ${eventType} has been submitted successfully.`,
                 ephemeral: true
@@ -2025,7 +2322,6 @@ async function handleNCOSNCOBTLog(interaction, eventType) {
                 ephemeral: true
             });
         }
-        
     } catch (error) {
         console.error('Error with (S)NCO BT submission:', error);
         // If the error is due to timeout, we don't need to do anything
@@ -2082,7 +2378,7 @@ async function handleBTCertLog(interaction, eventType) {
         // Look up names from the spreadsheet
         const instructorName = await getTrooperNameFromSteamID(steamId);
         const cplName = await getTrooperNameFromSteamID(cplSteamId);
-        
+        const logID = generateLogID(interaction);
         // Create an embed for the AAR channel
         const aarEmbed = new EmbedBuilder()
             .setTitle(`After Action Report`)
@@ -2096,15 +2392,32 @@ async function handleBTCertLog(interaction, eventType) {
                 { name: 'CPL SteamID', value: cplSteamId, inline: false }
             )
             .setTimestamp()
-            .setFooter({ text: `Submitted by ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() });
+            .setFooter({ text: `Log ID: ${logID}`, iconURL: interaction.user.displayAvatarURL() });
         
         // Send the embed to the AAR channel
-        const aarChannelId = '1371424870134579300'; // You'll change this later
+        const aarChannelId = process.env.AAR_CHANNEL_ID; // You'll change this later
         const aarChannel = interaction.client.channels.cache.get(aarChannelId);
         
         if (aarChannel) {
-            await aarChannel.send({ embeds: [aarEmbed] });
-            await modalSubmission.editReply({
+            const aarMessage = await aarChannel.send({ embeds: [aarEmbed] });
+            const actualLogID = aarMessage.id; // Get actual message ID.
+            // Update the embed footer with the correct log ID
+            const updatedEmbed = new EmbedBuilder()
+                .setTitle('After Action Report')
+                .setDescription(eventType)
+                .setColor('#FF8C00')
+                .setThumbnail('https://i.imgur.com/ushtI24.png')
+                .addFields(aarEmbed.data.fields)
+                .setTimestamp()
+                .setFooter({ text: `Log ID: ${actualLogID}`, iconURL: interaction.user.displayAvatarURL() });
+
+            await aarMessage.edit({embeds: [updatedEmbed]});
+            let data = {
+                cplName: cplName,
+                cplSteamId: cplSteamId
+            }
+        AARQueue.addToQueue(eventType, instructorName, steamId, data, actualLogID);
+        await modalSubmission.editReply({
                 content: `Your AAR for ${eventType} has been submitted successfully.`,
                 ephemeral: true
             });
@@ -2180,7 +2493,6 @@ async function handleGMActivitiesLog(interaction, eventType) {
         
         // Look up name from the spreadsheet
         const gmName = await getTrooperNameFromSteamID(steamId);
-        
         // Create an embed for the AAR channel
         const aarEmbed = new EmbedBuilder()
             .setTitle(`After Action Report`)
@@ -2194,14 +2506,32 @@ async function handleGMActivitiesLog(interaction, eventType) {
                 { name: 'Host', value: host, inline: false }
             )
             .setTimestamp()
-            .setFooter({ text: `Submitted by ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() });
+            .setFooter({ text: `Log ID: `, iconURL: interaction.user.displayAvatarURL() });
         
         // Send the embed to the AAR channel
-        const aarChannelId = '1371424870134579300'; // You'll change this later
+        const aarChannelId = process.env.AAR_CHANNEL_ID; // You'll change this later
         const aarChannel = interaction.client.channels.cache.get(aarChannelId);
         
         if (aarChannel) {
-            await aarChannel.send({ embeds: [aarEmbed] });
+            const aarMessage = await aarChannel.send({ embeds: [aarEmbed] });
+            const actualLogID = aarMessage.id; // Get actual message ID.
+            // Update the embed footer with the correct log ID
+            const updatedEmbed = new EmbedBuilder()
+                .setTitle('After Action Report')
+                .setDescription(eventType)
+                .setColor('#FF8C00')
+                .setThumbnail('https://i.imgur.com/ushtI24.png')
+                .addFields(aarEmbed.data.fields)
+                .setTimestamp()
+                .setFooter({ text: `Log ID: ${actualLogID}`, iconURL: interaction.user.displayAvatarURL() });
+
+            await aarMessage.edit({embeds: [updatedEmbed]});
+
+            let data = {
+                activityType: activityType,
+                host: host
+            }
+            AARQueue.addToQueue(eventType, gmName, steamId, data, actualLogID);
             await modalSubmission.editReply({
                 content: `Your AAR for ${eventType} has been submitted successfully.`,
                 ephemeral: true
@@ -2214,7 +2544,6 @@ async function handleGMActivitiesLog(interaction, eventType) {
                 ephemeral: true
             });
         }
-        
     } catch (error) {
         console.error('Error with GM activities submission:', error);
         // If the error is due to timeout, we don't need to do anything
@@ -2222,6 +2551,238 @@ async function handleGMActivitiesLog(interaction, eventType) {
     }
 }
 
+async function handleAppendLog(interaction) {
+    const logId = interaction.options.getString('logid');
+
+        try {
+            console.log(`Looking for Log ID: ${logId}`);
+            
+            // Use cached data to find the log
+            let result = await findAARLogById(logId);
+            
+            // If not found, wait a moment and try again (in case aarQueue is still processing)
+            if (!result) {
+                console.log(`Log ID ${logId} not found in cache, waiting and retrying...`);
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+                result = await findAARLogById(logId);
+            }
+            
+            if (!result) {
+                return await interaction.reply({
+                    content: `❌ Log ID \`${logId}\` not found. Make sure the Log ID is correct and the AAR was submitted recently (within 7 days).`,
+                    ephemeral: true
+                });
+            }
+            
+            const { rowData, rowIndex } = result;
+            const aarType = rowData[3]; // AAR type is in index 3
+            
+            console.log(`Found AAR: ${aarType} at row ${rowIndex}`);
+            
+            // Check if AAR type is editable
+            const allowedTypes = ['Server 1 Event', 'Server 2 Event', 'Training Simulation', 'Joint Training Simulation'];
+            if (!allowedTypes.includes(aarType)) {
+                return await interaction.reply({
+                    content: `❌ Cannot add participants to AAR type: \`${aarType}\``,
+                    ephemeral: true
+                });
+            }
+
+            // Create modal (following aar.js pattern)
+            const modal = new ModalBuilder()
+                .setCustomId(`addtolog_modal_${logId}_${rowIndex}`)
+                .setTitle(`Add Participants to ${aarType}`);
+
+            const participantsInput = new TextInputBuilder()
+                .setCustomId('participants')
+                .setLabel('Participants (comma separated)')
+                .setStyle(TextInputStyle.Paragraph)
+                .setPlaceholder('Enter participant names separated by commas...')
+                .setRequired(true)
+                .setMaxLength(1000);
+
+            const row = new ActionRowBuilder().addComponents(participantsInput);
+            modal.addComponents(row);
+
+            // Show the modal to the user
+            await interaction.showModal(modal);
+            
+            // Set up a collector for the modal submit interaction (following aar.js pattern)
+            const filter = i => i.customId === `addtolog_modal_${logId}_${rowIndex}`;
+            
+            try {
+                // Wait for the modal to be submitted (following aar.js pattern)
+                const modalSubmission = await interaction.awaitModalSubmit({
+                    filter,
+                    time: 300000 // 5 minutes
+                });
+                
+                // Get the values from the modal
+                const participantsInput = modalSubmission.fields.getTextInputValue('participants');
+                
+                // Defer the reply to give time for processing
+                await modalSubmission.deferReply({ ephemeral: true });
+                
+                // Parse participants from input
+                const selectedParticipants = participantsInput
+                    .split(',')
+                    .map(p => p.trim())
+                    .filter(p => p.length > 0);
+
+                if (selectedParticipants.length === 0) {
+                    return await modalSubmission.editReply({
+                        content: '❌ No participants provided.',
+                    });
+                }
+
+                console.log(`Adding participants to Log ID ${logId} at row ${rowIndex}`);
+
+                // Get current row data from spreadsheet
+                const response = await sheets.spreadsheets.values.get({
+                    spreadsheetId: process.env.MAIN_SPREADSHEET_ID,
+                    range: `'AARs'!${rowIndex}:${rowIndex}`,
+                });
+
+                const currentRow = response.data.values[0];
+
+                // Update the spreadsheet first
+                await updateRowWithAdditionalParticipants(selectedParticipants, currentRow, aarType, rowIndex);
+
+                // Update the cache AFTER spreadsheet update
+                await updateCacheWithNewData();
+
+                // Update the AAR message embed
+                await updateAARMessageEmbed(logId, selectedParticipants, currentRow, aarType, interaction.client);
+
+                const confirmEmbed = new EmbedBuilder()
+                    .setTitle('✅ Participants Added Successfully')
+                    .setDescription(`**Log ID:** \`${logId}\`\n**Added Participants:**\n${selectedParticipants.map(p => `• ${p}`).join('\n')}`)
+                    .setColor(0x00FF00)
+                    .setTimestamp();
+
+                await modalSubmission.editReply({
+                    embeds: [confirmEmbed],
+                });
+
+            } catch (error) {
+                console.error('Error with modal submission:', error);
+                // If the error is due to timeout, we don't need to do anything
+                // as the modal will just close
+            }
+
+        } catch (error) {
+            console.error('Error finding log:', error);
+            await interaction.reply({
+                content: '❌ An error occurred while searching for the log.',
+                ephemeral: true
+            });
+    }
+}
+
+async function updateRowWithAdditionalParticipants(selectedParticipants, currentRow, aarType, rowIndex) {
+    const updatedRow = [...currentRow];
+    
+    // Ensure row has enough columns
+    while (updatedRow.length < 200) {
+        updatedRow.push('');
+    }
+
+    const participantsString = selectedParticipants.join(', ');
+
+    switch (aarType) {
+        case 'Server 1 Event':
+        case 'Server 2 Event':
+            const currentS1Participants = updatedRow[29] || '';
+            updatedRow[29] = currentS1Participants ? `${currentS1Participants}, ${participantsString}` : participantsString;
+            break;
+
+        case 'Training Simulation':
+            const currentTSParticipants = updatedRow[23] || '';
+            updatedRow[23] = currentTSParticipants ? `${currentTSParticipants}, ${participantsString}` : participantsString;
+            break;
+
+        case 'Joint Training Simulation':
+            const currentJTSParticipants = updatedRow[96] || '';
+            updatedRow[96] = currentJTSParticipants ? `${currentJTSParticipants}, ${participantsString}` : participantsString;
+            break;
+    }
+
+    console.log(`Updating spreadsheet for row ${rowIndex}`);
+
+    // Update the spreadsheet
+    await sheets.spreadsheets.values.update({
+        spreadsheetId: process.env.MAIN_SPREADSHEET_ID,
+        range: `'AARs'!A${rowIndex}:GR${rowIndex}`,
+        valueInputOption: 'RAW',
+        resource: {
+            values: [updatedRow]
+        }
+    });
+}
+async function updateCacheWithNewData() {
+    await cacheManager.getRecentAARLogs(true); // Pass true to force refresh
+}
+async function updateAARMessageEmbed(logId, selectedParticipants, currentRow, aarType, client) {
+    try {
+        // Get the AAR channel and message
+        const aarChannelId = process.env.AAR_CHANNEL_ID;
+        const aarChannel = client.channels.cache.get(aarChannelId);
+        
+        if (!aarChannel) {
+            console.error('AAR channel not found');
+            return;
+        }
+        console.log(`Fetching AAR message with Log ID ${logId}`);
+        const aarMessage = await aarChannel.messages.fetch(logId);
+        const currentEmbed = aarMessage.embeds[0];
+
+        // Get current participants from the row data
+        let currentParticipants = '';
+        switch (aarType) {
+            case 'Server 1 Event':
+            case 'Server 2 Event':
+                currentParticipants = currentRow[29] || '';
+                break;
+            case 'Training Simulation':
+                currentParticipants = currentRow[23] || '';
+                break;
+            case 'Joint Training Simulation':
+                currentParticipants = currentRow[96] || '';
+                break;
+        }
+
+        // Add the new participants
+        const newParticipants = currentParticipants ? 
+            `${currentParticipants}, ${selectedParticipants.join(', ')}` : 
+            selectedParticipants.join(', ');
+
+        // Update the embed fields
+        const fields = [...currentEmbed.fields];
+        const participantsFieldIndex = fields.findIndex(field => field.name === 'Participants');
+        
+        if (participantsFieldIndex !== -1) {
+            fields[participantsFieldIndex].value = newParticipants;
+        }
+
+        // Create updated embed following the same format as aar.js
+        const updatedEmbed = new EmbedBuilder()
+            .setTitle('After Action Report')
+            .setDescription(aarType)
+            .setColor('#FF8C00')
+            .setThumbnail('https://i.imgur.com/ushtI24.png')
+            .addFields(fields)
+            .setTimestamp()
+            .setFooter(currentEmbed.footer);
+
+        // Update the original message
+        await aarMessage.edit({ embeds: [updatedEmbed] });
+
+        console.log(`Updated AAR message embed for Log ID ${logId}`);
+
+    } catch (error) {
+        console.error('Error updating AAR message embed:', error);
+    }
+}
 // Function to check if a user is registered (copied from index.js)
 async function isUserRegistered(discordId) {
   try {

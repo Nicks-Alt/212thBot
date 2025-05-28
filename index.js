@@ -222,7 +222,7 @@ client.on('interactionCreate', async interaction => {
 
   try {
     // Skip deferring for commands that use modals or don't need registration
-    if (['register', 'aar', 'help', 'about', 'info'].includes(interaction.commandName)) {
+    if (['register', 'aar', 'help', 'about', 'info', 'addtolog'].includes(interaction.commandName)) {
       await command.execute(interaction);
       return;
     }

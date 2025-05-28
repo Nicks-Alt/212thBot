@@ -108,6 +108,9 @@ async function initializeCache() {
       );
     }
     
+    // Cache recent AAR logs separately
+    await getRecentAARLogs(true); // Force refresh
+    
     console.log('Cache initialization complete!');
   } catch (error) {
     console.error('Error initializing cache:', error);
@@ -187,6 +190,117 @@ async function getCachedSheetData(
   }
   
   return cacheEntry.data;
+}
+
+/**
+ * Get recent AAR logs (within 7 days and with log IDs)
+ * @param {boolean} forceRefresh - Whether to force a refresh of the cache
+ * @returns {Promise<Array>} - Filtered AAR data with row indices
+ */
+async function getRecentAARLogs(forceRefresh = false) {
+  const cacheKey = 'recentaars';
+  const now = Date.now();
+  
+  // Check if we have cached recent AAR data
+  if (!forceRefresh && cache[cacheKey] && (now - cache[cacheKey].lastFetch < CACHE_EXPIRATION)) {
+    console.log(`Using cached recent AAR data (${cache[cacheKey].data.length} logs)`);
+    return cache[cacheKey].data;
+  }
+
+  try {
+    console.log('Fetching and filtering recent AAR logs...');
+    
+    // Fetch all AAR data
+    const aarData = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.MAIN_SPREADSHEET_ID,
+      range: `'AARs'!A2:DE100000`,
+      valueRenderOption: 'FORMATTED_VALUE'
+    });
+
+    const rows = aarData.data.values || [];
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    const recentLogs = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      
+      // Check if log ID exists (column DE, index 108)
+      const logId = row[108];
+      if (!logId || logId.trim() === '') {
+        continue;
+      }
+
+      // Check if date is within 7 days (column A, index 0)
+      const dateStr = row[0];
+      if (!dateStr) {
+        continue;
+      }
+
+      try {
+        // Parse date in format "m/dd/yyyy hh:mm:ss"
+        const datePart = dateStr.split(' ')[0]; // Get just the date part
+        const [month, day, year] = datePart.split('/');
+        const logDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+        if (logDate >= sevenDaysAgo) {
+          recentLogs.push({
+            rowData: row,
+            rowIndex: i + 2, // +2 because we start from A2 and sheets are 1-indexed
+            logId: logId,
+            date: logDate,
+            aarType: row[3]
+          });
+        }
+      } catch (error) {
+        console.error('Error parsing date:', dateStr, error);
+        continue;
+      }
+    }
+
+    // Cache the filtered results
+    cache[cacheKey] = {
+      data: recentLogs,
+      lastFetch: now
+    };
+
+    console.log(`Found and cached ${recentLogs.length} recent AAR logs with valid log IDs`);
+    return recentLogs;
+  } catch (error) {
+    console.error('Error getting recent AAR logs:', error);
+    
+    // Return cached data if available, even if expired
+    if (cache[cacheKey] && cache[cacheKey].data) {
+      console.log('Using expired cached recent AAR data');
+      return cache[cacheKey].data;
+    }
+    
+    return [];
+  }
+}
+
+/**
+ * Find AAR log by log ID from cached data
+ * @param {string} logId - The log ID to search for
+ * @returns {Promise<Object|null>} - Log data with row index or null if not found
+ */
+async function findAARLogById(logId) {
+  try {
+    const recentLogs = await getRecentAARLogs();
+    
+    const foundLog = recentLogs.find(log => log.logId === logId);
+    if (foundLog) {
+      return {
+        rowData: foundLog.rowData,
+        rowIndex: foundLog.rowIndex
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error finding AAR log by ID:', error);
+    return null;
+  }
 }
 
 /**
@@ -327,6 +441,17 @@ function setupPeriodicCacheRefresh(intervalMinutes = 4) {
         }
       }
       
+      // Refresh recent AAR logs
+      try {
+        console.log('Refreshing recent AAR logs cache');
+        const recentLogs = await getRecentAARLogs(true);
+        refreshedEntries++;
+        console.log(`Successfully refreshed recent AAR logs with ${recentLogs.length} entries`);
+      } catch (error) {
+        console.error('Failed to refresh recent AAR logs:', error);
+        failedEntries++;
+      }
+      
       const endTime = Date.now();
       const duration = (endTime - startTime) / 1000;
       
@@ -345,6 +470,8 @@ function setupPeriodicCacheRefresh(intervalMinutes = 4) {
 module.exports = {
   initializeCache,
   getCachedSheetData,
+  getRecentAARLogs,
+  findAARLogById,
   clearCache,
   getCacheStats,
   setupPeriodicCacheRefresh
