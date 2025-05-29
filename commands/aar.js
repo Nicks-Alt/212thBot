@@ -1694,7 +1694,7 @@ async function handleARFCertLog(interaction, eventType) {
                 certification: certification,
                 result: result
             }
-            AARQueue.addToQueue(eventType, instructorName, steamId, data, actualLogID);
+            AARQueue.addToQueue(eventType, examinerName, steamId, data, actualLogID);
             await modalSubmission.editReply({
                 content: `Your AAR for ${eventType} has been submitted successfully.`,
                 ephemeral: true
@@ -1818,7 +1818,7 @@ async function handleWraithCertLog(interaction, eventType) {
                 certification: certification,
                 result: result
             }
-            AARQueue.addToQueue(eventType, instructorName, steamId, data, actualLogID);
+            AARQueue.addToQueue(eventType, examinerName, steamId, data, actualLogID);
             await modalSubmission.editReply({
                 content: `Your AAR for ${eventType} has been submitted successfully.`,
                 ephemeral: true
@@ -1942,7 +1942,7 @@ async function handleMedicCertLog(interaction, eventType) {
                 certification: certification,
                 result: result
             }
-            AARQueue.addToQueue(eventType, instructorName, steamId, data, actualLogID);
+            AARQueue.addToQueue(eventType, examinerName, steamId, data, actualLogID);
             await modalSubmission.editReply({
                 content: `Your AAR for ${eventType} has been submitted successfully.`,
                 ephemeral: true
@@ -2066,7 +2066,7 @@ async function handleHeavyCertLog(interaction, eventType) {
                 certification: certification,
                 result: result
             }
-            AARQueue.addToQueue(eventType, instructorName, steamId, data, actualLogID);
+            AARQueue.addToQueue(eventType, examinerName, steamId, data, actualLogID);
             await modalSubmission.editReply({
                 content: `Your AAR for ${eventType} has been submitted successfully.`,
                 ephemeral: true
@@ -2190,7 +2190,7 @@ async function handleJSFGoldCertLog(interaction, eventType) {
                 certification: certification,
                 result: result
             }
-            AARQueue.addToQueue(eventType, instructorName, steamId, data, actualLogID);
+            AARQueue.addToQueue(eventType, examinerName, steamId, data, actualLogID);
             await modalSubmission.editReply({
                 content: `Your AAR for ${eventType} has been submitted successfully.`,
                 ephemeral: true
