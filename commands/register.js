@@ -440,7 +440,10 @@ module.exports = {
       if (rolesToAdd.length > 0) {
         await member.roles.add(rolesToAdd);
       }
-      
+      const rolesToRemove = [];
+      rolesToRemove.push(process.env['SHINY_ROLE']);
+      rolesToRemove.push(process.env['CADET_ROLE']);
+      await member.roles.remove(rolesToRemove);
       // Register the user in the database
       console.log(`Registering user ${discordId} in database with SteamID ${steamId} and officer status ${isTargetOfficer}`);
       const registrationResult = await registerUserInDatabase(discordId, steamId, isTargetOfficer);

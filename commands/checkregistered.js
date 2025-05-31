@@ -294,9 +294,9 @@ module.exports = {
       // Initial response
       const initialEmbed = await generateEmbed(currentPage);
       
-      // Only add buttons if there are more than 25 entries (which means more than 1 page with 15 users per page)
+      // Only add buttons if there are more than 15 entries (which means more than 1 page with 15 users per page)
       let message;
-      if (totalRegisteredUsers > 25) {
+      if (totalRegisteredUsers > 15) {
         const buttons = getButtons(currentPage);
         message = await interaction.editReply({ 
           embeds: [initialEmbed], 
@@ -362,7 +362,7 @@ module.exports = {
           }
         });
       } else {
-        // If 25 or fewer entries, no need for buttons
+        // If 15 or fewer entries, no need for buttons
         message = await interaction.editReply({ 
           embeds: [initialEmbed], 
           ephemeral: true 
