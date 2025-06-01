@@ -233,7 +233,7 @@ module.exports = {
                             { name: 'NCO - Event Lead', value: 'NCO - Event Lead' },
                             { name: 'NCO - Training Lead', value: 'NCO - Training Lead' },
                             { name: 'NCO - Tryout / BT', value: 'NCO - Tryout / BT' },
-                            { name: 'NCO - Written Test', value: 'NCO - Written Test' },
+                            { name: 'SNCO - Written Test', value: 'SNCO - Written Test' },
                             { name: 'SNCO - Training Simulation', value: 'SNCO - Training Simulation' },
                             { name: 'Officer - Written Test', value: 'Officer - Written Test' },
                             { name: 'Officer - Interview', value: 'Officer - Interview' }
