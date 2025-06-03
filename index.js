@@ -31,7 +31,7 @@ function cycleStatus() {
     activities: [{ 
       name: currentStatus.name, 
       type: currentStatus.type,
-      url: currentStatus.type === 1 ? 'https://www.twitch.tv/212thattackbattalion' : null // URL required for STREAMING
+      url: currentStatus.type === 1 ? 'https://www.twitch.tv/' : null // URL required for STREAMING
     }],
     status: 'online'
   });
@@ -133,7 +133,7 @@ function setNextStatus() {
       activities: [{ 
         name: status.name, 
         type: status.type,
-        url: status.type === 1 ? 'https://www.twitch.tv/212thattackbattalion' : null
+        url: status.type
       }],
       status: 'online'
     });
@@ -190,7 +190,7 @@ client.once('ready', async () => {
   try {
     await cacheManager.initializeCache();
     // Set up periodic cache refresh every 10 minutes
-    cacheManager.setupPeriodicCacheRefresh(4);
+    cacheManager.setupPeriodicCacheRefresh(10);
     console.log('Cache initialized successfully');
   } catch (error) {
     console.error('Error initializing cache:', error);
