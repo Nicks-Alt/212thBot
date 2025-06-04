@@ -431,8 +431,7 @@ module.exports = {
             }
             console.log(`subcommand: ${subcommand}`);
         }
-        if (subcommand === 'append') {
-            console.log(`Append log`);
+        if (subcommand === 'participants') {
             const {handleAppendLog} = require('../aarHandlers/handleAppendLog');
             await handleAppendLog(interaction);
         }
