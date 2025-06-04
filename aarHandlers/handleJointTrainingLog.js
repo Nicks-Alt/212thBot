@@ -17,7 +17,7 @@ async function handleJointTrainingLog(interaction, eventType, battalions) {
         .setCustomId('leadSteamId')
         .setLabel('Lead SteamID')
         .setStyle(TextInputStyle.Short)
-        .setRequired(true);
+        .setRequired(false);
 
     const gamemasterInput = new TextInputBuilder()
         .setCustomId('gamemaster')
