@@ -1,6 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { exec } = require('child_process');
-const cacheManager = require('../cacheManager');
 
 // Function to check if a user is an officer using the cache
 async function isUserOfficer(discordId) {

@@ -1,6 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { google } = require('googleapis');
-const cacheManager = require('../cacheManager');
 
 const auth = new google.auth.GoogleAuth({
   keyFile: 'service_account.json',

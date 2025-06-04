@@ -1,8 +1,7 @@
-const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
-const cacheManager = require('../cacheManager');
 
 const auth = new google.auth.GoogleAuth({
   keyFile: 'service_account.json',
@@ -11,20 +10,28 @@ const auth = new google.auth.GoogleAuth({
 
 const sheets = google.sheets({ version: 'v4', auth });
 
-// Function to check if a user is an officer using the cache
+// Function to check if a user is an officer
 async function isUserOfficer(discordId) {
   try {
-    // Get the cached officer data using the new cache key
-    const rows = await cacheManager.getCachedSheetData(
-      process.env.OFFICER_SPREADSHEET_ID,
-      `'Bot'!A2:C`,
-      'registrationdata'
-    );
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.SPREADSHEET_ID,
+      range: `'Users'!A2:C1000`,
+      valueRenderOption: 'UNFORMATTED_VALUE'
+    });
 
-    const userRow = rows.find(row => row[0] === discordId);
+    const rows = response.data.values || [];
+    const nonEmptyRows = rows.filter(row => row && row.length > 0 && row[0]);
+    const userRow = nonEmptyRows.find(row => row[0] === discordId);
     
-    // If user found and officer status is true (column C, index 2)
-    return userRow && userRow.length > 2 && (userRow[2] === true || userRow[2] === "TRUE" || userRow[2] === "true");
+    // Check for various possible "true" values
+    const isOfficer = userRow && userRow.length > 2 && 
+           (userRow[2] === true || 
+            userRow[2] === "TRUE" || 
+            userRow[2] === "true" || 
+            userRow[2] === 1 ||
+            String(userRow[2]).toLowerCase() === "true");
+    
+    return isOfficer;
   } catch (error) {
     console.error('Error checking officer status:', error);
     return false;
@@ -40,7 +47,7 @@ module.exports = {
     // Defer reply since this command might take a moment to check officer status
     await interaction.deferReply({ ephemeral: true });
     
-    // Check if the user is registered using the cache
+    // Check if the user is registered
     const isRegistered = await isUserRegistered(interaction.user.id);
     
     // Check if the user is an officer (only if they're registered)
@@ -182,18 +189,20 @@ module.exports = {
   }
 };
 
-// Function to check if a user is registered using the cache
+// Function to check if a user is registered
 async function isUserRegistered(discordId) {
   try {
-    // Get the cached officer data using the new cache key
-    const rows = await cacheManager.getCachedSheetData(
-      process.env.OFFICER_SPREADSHEET_ID,
-      `'Bot'!A2:B`,
-      'registrationdata'
-    );
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.SPREADSHEET_ID,
+      range: `'Users'!A2:C1000`,
+      valueRenderOption: 'UNFORMATTED_VALUE'
+    });
 
-    // Check if the user is registered
-    return rows.some(row => row[0] === discordId);
+    const rows = response.data.values || [];
+    const nonEmptyRows = rows.filter(row => row && row.length > 0 && row[0]);
+    const existingEntry = nonEmptyRows.find(row => row[0] === discordId);
+    
+    return !!existingEntry; // Convert to boolean
   } catch (error) {
     console.error('Error checking user registration:', error);
     return false; // Default to not registered on error

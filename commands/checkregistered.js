@@ -1,5 +1,4 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require('discord.js');
-const cacheManager = require('../cacheManager');
 const { google } = require('googleapis');
 
 // Set up Google Sheets API

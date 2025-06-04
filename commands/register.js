@@ -1,6 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { google } = require('googleapis');
-const cacheManager = require('../cacheManager');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');

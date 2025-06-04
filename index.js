@@ -3,7 +3,6 @@ const path = require('path');
 const { Client, Collection, GatewayIntentBits, REST, Routes } = require('discord.js');
 require('dotenv').config();
 const { google } = require('googleapis');
-const cacheManager = require('./cacheManager');
 
 // Create the Discord client and commands collection
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
@@ -55,8 +54,8 @@ async function isUserRegistered(discordId) {
   try {
     // Force a fresh fetch from the spreadsheet to avoid cache issues
     const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.OFFICER_SPREADSHEET_ID,
-      range: `'Bot'!A2:C1000`, // Include column C
+      spreadsheetId: process.env.SPREADSHEET_ID,
+      range: `'Users'!A2:C1000`,
       valueRenderOption: 'UNFORMATTED_VALUE' // Get raw values
     });
 
@@ -186,17 +185,6 @@ client.once('ready', async () => {
     status: 'dnd' // Red "Do Not Disturb" status while loading
   });
   
-  // Initialize the cache when the bot is ready
-  try {
-    await cacheManager.initializeCache();
-    // Set up periodic cache refresh every 10 minutes
-    cacheManager.setupPeriodicCacheRefresh(10);
-    console.log('Cache initialized successfully');
-  } catch (error) {
-    console.error('Error initializing cache:', error);
-    console.log('Continuing without cache initialization. Data will be fetched as needed.');
-  }
-  
   // After a short delay, start cycling through statuses
   setTimeout(() => {
     // Set the first status
@@ -222,7 +210,7 @@ client.on('interactionCreate', async interaction => {
 
   try {
     // Skip deferring for commands that use modals or don't need registration
-    if (['register', 'aar', 'help', 'about', 'info', 'addtolog'].includes(interaction.commandName)) {
+    if (['register', 'aar', 'help'].includes(interaction.commandName)) {
       await command.execute(interaction);
       return;
     }
@@ -244,7 +232,6 @@ client.on('interactionCreate', async interaction => {
     // Check if command requires officer status
     const requiresOfficer = command.requiresOfficer || 
                            ['embed', 'loacheck'].includes(interaction.commandName);
-    
     if (requiresOfficer) {
       const isOfficer = await isUserOfficer(interaction.user.id);
       console.log(`User ${interaction.user.tag} officer status: ${isOfficer}`);
@@ -260,31 +247,7 @@ client.on('interactionCreate', async interaction => {
     
     // User is registered and has appropriate permissions, execute the command
     await command.execute(interaction);
-  } catch (error) {
-    // console.error(`Error executing command ${interaction.commandName}:`, error);
-    
-    // try {
-    //   // Handle the error response based on the interaction state
-    //   if (interaction.deferred) {
-    //     await interaction.editReply({ 
-    //       content: 'There was an error executing this command. Please try again later.', 
-    //       ephemeral: true 
-    //     });
-    //   // } else if (!interaction.replied) {
-    //   //   await interaction.editReply({ 
-    //   //     content: 'There was an error executing this command. Please try again later.', 
-    //   //     ephemeral: true 
-    //   //   });
-    //   } else {
-    //     await interaction.followUp({ 
-    //       content: 'There was an error executing this command. Please try again later.', 
-    //       ephemeral: true 
-    //     });
-    //   }
-    // } catch (followUpError) {
-    //   console.error('Error sending error message:', followUpError);
-    // }
-  }
+  } catch (error) {}
 });
 
 // Log in to Discord

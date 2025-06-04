@@ -1,7 +1,4 @@
-const aarQueue = [];
-let isProcessing = false;
 const { google } = require('googleapis');
-const cacheManager = require('../cacheManager');
 
 const auth = new google.auth.GoogleAuth({
   keyFile: 'service_account.json',
@@ -10,134 +7,7 @@ const auth = new google.auth.GoogleAuth({
 
 const sheets = google.sheets({ version: 'v4', auth });
 
-class AARQueue {
-    static async addToQueue(eventType, name, steamId, data, ID) {
-        const logID = ID;
-        aarQueue.push({
-            eventType,
-            name,
-            steamId,
-            data,
-            logID,
-            timestamp: Date.now()
-        });
-        
-        this.processQueue();
-        return logID;
-    }
-    
-    static processQueue() {
-        if (isProcessing || aarQueue.length === 0) return;
-        
-        isProcessing = true;
-        console.log(`Processing ${aarQueue.length} AAR(s) in queue`);
-        
-        while (aarQueue.length > 0) {
-            const aarData = aarQueue.shift();
-            
-            try {
-                 insertAARToSheet(
-                    aarData.eventType,
-                    aarData.name,
-                    aarData.steamId,
-                    aarData.data,
-                    aarData.logID
-                );
-                console.log(`✓ AAR processed: ${aarData.eventType} by ${aarData.name} (${aarData.logID})`);
-            } catch (error) {
-                console.error(`✗ AAR failed: ${aarData.eventType} by ${aarData.name} (${aarData.logID})`, error);
-            }
-            
-            new Promise(resolve => setTimeout(resolve, 100));
-        }
-        
-        isProcessing = false;
-        console.log('AAR queue processing complete');
-    }
-}
-
-// Generate a logID using the message ID from the interaction
-function generateLogID(interaction) {
-    // Get the message ID from the interaction response
-    return interaction.id; // This will be the interaction ID which becomes the message ID
-}
-
-// Format timestamp as m/dd/yyyy hh:mm:ss in GMT timezone
-function formatTimestamp() {
-  const now = new Date();
-  
-  // Get GMT/UTC components
-  const month = now.getUTCMonth() + 1; // No padding for month
-  const day = String(now.getUTCDate()).padStart(2, '0');
-  const year = now.getUTCFullYear();
-  const hours = String(now.getUTCHours()).padStart(2, '0');
-  const minutes = String(now.getUTCMinutes()).padStart(2, '0');
-  const seconds = String(now.getUTCSeconds()).padStart(2, '0');
-  
-  // Return as string in the exact format you want
-  return `${month}/${day}/${year} ${hours}:${minutes}:${seconds}`;
-}
-
-// Find the first empty row in the AARs sheet
-async function findFirstEmptyRow() {
-  try {
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.MAIN_SPREADSHEET_ID,
-      range: `AARs!A:A`,
-    });
-    
-    const values = response.data.values || [];
-    return values.length + 1; // Next empty row
-  } catch (error) {
-    console.error('Error finding empty row:', error);
-    return 2; // Default to row 2 if error
-  }
-}
-
-// Add new AAR entry to the cacheManager's recent cache
-async function addToRecentAARCache(rowData, rowIndex, logId, eventType) {
-  try {
-    // Get the cached data using the same method as register.js
-    const recentLogs = await cacheManager.getCachedSheetData(
-      process.env.MAIN_SPREADSHEET_ID,
-      `'AARs'!A2:DE100000`,
-      'recentaars'
-    );
-    
-    // Parse the date to check if it's within 7 days
-    const dateStr = rowData[0];
-    if (!dateStr) return;
-    
-    const datePart = dateStr.split(' ')[0];
-    const [month, day, year] = datePart.split('/');
-    const logDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-    
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    
-    // Only add if within 7 days and has log ID
-    if (logDate >= sevenDaysAgo && logId && logId.trim() !== '') {
-      const newEntry = {
-        rowData: rowData,
-        rowIndex: rowIndex,
-        logId: logId,
-        date: logDate,
-        aarType: eventType
-      };
-      
-      // Add the new row data to the cached sheet data (like register.js does)
-      recentLogs.unshift(rowData);
-      
-      console.log(`Added new AAR entry to cache: ${eventType} (${logId}). Cache now contains ${recentLogs.length} entries`);
-    }
-  } catch (error) {
-    console.error('Error updating recent AAR cache:', error);
-  }
-}
-
-// Main function to insert AAR data
-async function insertAARToSheet(eventType, name, steamId, data, ID) {
-  try {
+async function insertAAR(eventType, name, steamId, data, ID) {
     const timestamp = formatTimestamp();
     const logId = ID;
     const firstEmptyRow = await findFirstEmptyRow();
@@ -276,27 +146,15 @@ async function insertAARToSheet(eventType, name, steamId, data, ID) {
     }
     const lastColumn = numberToColumnLetter(rowData.length);
     await sheets.spreadsheets.values.update({
-    spreadsheetId: process.env.MAIN_SPREADSHEET_ID,
+    spreadsheetId: "1wjm5siit8NNdZJ-zaDsXlXpijywmtWmshc9eMuTCxT0",
     range: `AARs!A${firstEmptyRow}:${lastColumn}${firstEmptyRow}`,
     valueInputOption: 'USER_ENTERED',
     resource: {
         values: [rowData]
         }
     });
-    
-    // Force refresh the cache after inserting AAR
-    console.log('Forcing cache refresh after AAR insertion...');
-    await cacheManager.getRecentAARLogs(true); // Pass true to force refresh
-    console.log('Cache refresh completed after AAR insertion');
-    
-    return logId;
-  } catch (error) {
-    console.error('Error inserting AAR to sheet:', error);
-    throw error;
-  }
 }
 
-// Convert column number to Excel column letters (A, B, C, ..., AA, AB, etc.)
 function numberToColumnLetter(num) {
   let result = '';
   while (num > 0) {
@@ -307,4 +165,36 @@ function numberToColumnLetter(num) {
   return result;
 }
 
-module.exports = { AARQueue, generateLogID, formatTimestamp, numberToColumnLetter};
+// Find the first empty row in the AARs sheet
+async function findFirstEmptyRow() {
+  try {
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: "1wjm5siit8NNdZJ-zaDsXlXpijywmtWmshc9eMuTCxT0",
+      range: `AARs!A:A`,
+    });
+    
+    const values = response.data.values || [];
+    return values.length + 1; // Next empty row
+  } catch (error) {
+    console.error('Error finding empty row:', error);
+    return 2; // Default to row 2 if error
+  }
+}
+
+// Format timestamp as m/dd/yyyy hh:mm:ss in GMT timezone
+function formatTimestamp() {
+  const now = new Date();
+  
+  // Get GMT/UTC components
+  const month = now.getUTCMonth() + 1; // No padding for month
+  const day = String(now.getUTCDate()).padStart(2, '0');
+  const year = now.getUTCFullYear();
+  const hours = String(now.getUTCHours()).padStart(2, '0');
+  const minutes = String(now.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(now.getUTCSeconds()).padStart(2, '0');
+  
+  // Return as string in the exact format you want
+  return `${month}/${day}/${year} ${hours}:${minutes}:${seconds}`;
+}
+
+module.exports = {insertAAR}

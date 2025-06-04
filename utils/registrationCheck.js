@@ -15,8 +15,8 @@ const sheets = google.sheets({ version: 'v4', auth });
 async function isUserRegistered(discordId) {
   try {
     const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.OFFICER_SPREADSHEET_ID,
-      range: `'Bot'!A2:B1000`, // Adjust range as needed
+      spreadsheetId: process.env.SPREADSHEET_ID,
+      range: `'Users'!A2:B1000`, // Adjust range as needed
     });
 
     const rows = response.data.values || [];
@@ -29,4 +29,30 @@ async function isUserRegistered(discordId) {
   }
 }
 
-module.exports = { isUserRegistered };
+/**
+ * Gets a user's SteamID from the registration system
+ * @param {string} discordId - The Discord ID of the user
+ * @returns {Promise<string|null>} - The user's SteamID or null if not found
+ */
+async function getUserSteamID(discordId) {
+  try {
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.SPREADSHEET_ID,
+      range: `'Users'!A2:B1000`, // Adjust range as needed
+    });
+
+    const rows = response.data.values || [];
+    const userEntry = rows.find(row => row[0] === discordId);
+    
+    if (userEntry && userEntry[1]) {
+      return userEntry[1]; // SteamID is in column B (index 1)
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error getting user SteamID:', error);
+    return null;
+  }
+}
+
+module.exports = { isUserRegistered, getUserSteamID };

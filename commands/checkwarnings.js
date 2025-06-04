@@ -1,5 +1,4 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } = require('discord.js');
-const cacheManager = require('../cacheManager');
 
 // Function to check if a user is an officer using the cache
 async function isUserOfficer(discordId) {

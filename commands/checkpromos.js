@@ -3,7 +3,6 @@ const { google } = require('googleapis');
 const moment = require('moment');
 const fs = require('fs');
 const path = require('path');
-const cacheManager = require('../cacheManager');
 require('dotenv').config();
 
 // Configure Google Sheets API
