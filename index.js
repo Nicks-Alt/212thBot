@@ -37,110 +37,6 @@ function cycleStatus() {
   
   console.log(`Status set to: ${currentStatus.type === 0 ? 'Playing' : currentStatus.type === 1 ? 'Streaming' : 'Watching'} ${currentStatus.name}`);
 }
-
-// Set up the Google Sheets API for read-only operations
-const auth = new google.auth.GoogleAuth({
-  keyFile: 'service_account.json',
-  scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-});
-const sheets = google.sheets({ version: 'v4', auth });
-
-/**
- * Checks if a user is registered in the system
- * @param {string} discordId - The Discord ID of the user
- * @returns {Promise<boolean>} - Whether the user is registered
- */
-async function isUserRegistered(discordId) {
-  try {
-    // Force a fresh fetch from the spreadsheet to avoid cache issues
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.SPREADSHEET_ID,
-      range: `'Users'!A2:C1000`,
-      valueRenderOption: 'UNFORMATTED_VALUE' // Get raw values
-    });
-
-    const rows = response.data.values || [];
-    // Filter out empty rows first
-    const nonEmptyRows = rows.filter(row => row && row.length > 0 && row[0]);
-    const existingEntry = nonEmptyRows.find(row => row[0] === discordId);
-    
-    console.log(`Registration check for ${discordId}: ${!!existingEntry}`);
-    return !!existingEntry; // Convert to boolean
-  } catch (error) {
-    console.error('Error checking user registration:', error);
-    return false; // Default to not registered on error
-  }
-}
-
-/**
- * Checks if a user is an officer
- * @param {string} discordId - The Discord ID of the user
- * @returns {Promise<boolean>} - Whether the user is an officer
- */
-async function isUserOfficer(discordId) {
-  try {
-    // Force a fresh fetch from the spreadsheet to avoid cache issues
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.OFFICER_SPREADSHEET_ID,
-      range: `'Bot'!A2:C1000`,
-      valueRenderOption: 'UNFORMATTED_VALUE' // Get raw values
-    });
-
-    const rows = response.data.values || [];
-    // Filter out empty rows first
-    const nonEmptyRows = rows.filter(row => row && row.length > 0 && row[0]);
-    const userRow = nonEmptyRows.find(row => row[0] === discordId);
-    
-    // Check for various possible "true" values
-    const isOfficer = userRow && userRow.length > 2 && 
-           (userRow[2] === true || 
-            userRow[2] === "TRUE" || 
-            userRow[2] === "true" || 
-            userRow[2] === 1 ||
-            String(userRow[2]).toLowerCase() === "true");
-    
-    console.log(`Officer check for ${discordId}: ${isOfficer}, value: ${userRow ? userRow[2] : 'user not found'}`);
-    return isOfficer;
-  } catch (error) {
-    console.error('Error checking officer status:', error);
-    return false; // Default to not an officer on error
-  }
-}
-
-// Global variable to track current status index
-let currentStatusIndex = 0;
-
-// Function to set the next status in rotation
-function setNextStatus() {
-  try {
-    const statuses = [
-      { name: 'Obi-Wan crash', type: 3 },      // WATCHING
-      { name: 'Cody fighting', type: 1 },      // STREAMING
-      { name: 'with wires', type: 0 }          // PLAYING
-    ];
-    
-    // Get the next status in rotation
-    const status = statuses[currentStatusIndex];
-    
-    // Update index for next time
-    currentStatusIndex = (currentStatusIndex + 1) % statuses.length;
-    
-    console.log(`Setting status to: ${status.type === 0 ? 'Playing' : status.type === 1 ? 'Streaming' : 'Watching'} ${status.name}`);
-    
-    // Set the presence
-    client.user.setPresence({
-      activities: [{ 
-        name: status.name, 
-        type: status.type,
-        url: status.type
-      }],
-      status: 'online'
-    });
-  } catch (error) {
-    console.error('Error setting status:', error);
-  }
-}
-
 // Register the slash commands
 const commandsPath = path.join(__dirname, 'commands');
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
@@ -195,6 +91,20 @@ client.once('ready', async () => {
   }, 5000); // 5 second delay to show loading status
 });
 
+// Load event files
+const eventsPath = path.join(__dirname, 'events');
+const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.js'));
+
+for (const file of eventFiles) {
+  const filePath = path.join(eventsPath, file);
+  const event = require(filePath);
+  if (event.once) {
+    client.once(event.name, (...args) => event.execute(...args));
+  } else {
+    client.on(event.name, (...args) => event.execute(...args));
+  }
+}
+
 // Command interaction handler - UPDATED FOR RELIABILITY
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
@@ -218,6 +128,7 @@ client.on('interactionCreate', async interaction => {
     await interaction.deferReply({ ephemeral: true });
     
     // Force a fresh check of registration status
+    const {isUserRegistered} = require('./utils/isUserRegistered');
     const isRegistered = await isUserRegistered(interaction.user.id);
     console.log(`User ${interaction.user.tag} registration status: ${isRegistered}`);
     
@@ -233,6 +144,7 @@ client.on('interactionCreate', async interaction => {
     const requiresOfficer = command.requiresOfficer || 
                            ['embed', 'loacheck'].includes(interaction.commandName);
     if (requiresOfficer) {
+      const {isUserOfficer} = require('./utils/isUserOfficer');
       const isOfficer = await isUserOfficer(interaction.user.id);
       console.log(`User ${interaction.user.tag} officer status: ${isOfficer}`);
       

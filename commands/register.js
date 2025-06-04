@@ -11,217 +11,6 @@ const auth = new google.auth.GoogleAuth({
 
 const sheets = google.sheets({ version: 'v4', auth });
 
-// Function to get trooper info from SteamID using the direct API endpoints
-async function getTrooperInfoFromSteamID(steamID) {
-  try {
-    // Make sure the steamID is properly formatted
-    const formattedSteamID = steamID.trim();
-    // First check the 212th endpoint
-    let player = await checkBattalionEndpoint('212th', formattedSteamID);
-    // If not found in 212th, check 212AB
-    if (!player) {
-      player = await checkBattalionEndpoint('212AB', formattedSteamID);
-    }
-    // If player not found in either battalion
-    if (!player) {
-      console.log(`No player found for SteamID: ${formattedSteamID} in either 212th or 212AB`);
-      return { name: 'Unknown', rank: 'Unknown', company: '' };
-    }
-    
-    // Extract the relevant information
-    return {
-      name: player.name || 'Unknown',
-      rank: player.rid || 'Unknown',
-      company: player.groupid || '212th', // This will be either '212th' or '212AB'
-      characterId: player.characterid,
-      promoter: player.promoter,
-      lastSeen: player.lastseen,
-      added: player.added,
-      rankUpdated: player.ridupdated,
-      lorename: player.lorename || null // Add the lorename field
-    };
-  } catch (error) {
-    console.error('Error fetching info from SuperiorServers API:', error.message);
-    return { name: 'Unknown', rank: 'Unknown', company: '' };
-  }
-}
-
-// Helper function to check a specific battalion endpoint
-async function checkBattalionEndpoint(battalion, steamID) {
-  try {
-    // Define the API URL based on the battalion
-    const apiUrl = `https://superiorservers.co/api/ssrp/cwrp/groupinfo/${battalion}`;
-    
-    console.log(`Fetching data from ${apiUrl}`);
-    
-    // Make the API request
-    const response = await axios.get(apiUrl);
-    const data = response.data;
-    
-    if (!data || !data.success || !data.response || !data.response.players) {
-      console.error(`API data for ${battalion} is invalid:`, JSON.stringify(data, null, 2));
-      return null;
-    }
-    
-    console.log(`API returned ${data.response.players.length} players for ${battalion}`);
-    
-    // Normalize the steamID for comparison
-    const normalizedSteamID = steamID.trim().toUpperCase();
-    
-    // Find matching players with normalized comparison
-    const matchingPlayers = data.response.players.filter(p => {
-      const playerSteamId = p.steamid ? p.steamid.trim().toUpperCase() : '';
-      const matches = playerSteamId === normalizedSteamID;
-      if (matches) {
-        console.log(`Found matching player: ${p.name} with SteamID: ${p.steamid}`);
-      }
-      return matches;
-    });
-    
-    if (matchingPlayers.length === 0) {
-      console.log(`No ${battalion} player found for SteamID: ${steamID}`);
-      return null;
-    }
-    
-    console.log(`Found ${matchingPlayers.length} characters for SteamID: ${steamID} in ${battalion}`);
-    
-    // Determine which tag to filter based on battalion
-    const tagToFilter = battalion === '212th' ? 418 : 522;
-    
-    // Filter out characters with the appropriate tag
-    const validPlayers = matchingPlayers.filter(player => {
-      if (!player.tags || !Array.isArray(player.tags)) {
-        console.log(`Player ${player.name} has no tags, keeping`);
-        return true; // Keep players with no tags
-      }
-      
-      // Check if the player has the tag we're filtering
-      const hasFilterTag = player.tags.some(tag => tag === tagToFilter);
-      
-      if (hasFilterTag) {
-        console.log(`Skipping character ${player.name} (${player.characterid}) because it has the ${tagToFilter} tag`);
-        return false;
-      }
-      
-      console.log(`Player ${player.name} doesn't have filter tag ${tagToFilter}, keeping`);
-      return true;
-    });
-    
-    if (validPlayers.length === 0) {
-      console.log(`All characters for SteamID: ${steamID} in ${battalion} have the ${tagToFilter} tag`);
-      return null;
-    }
-    
-    // Use the first valid player
-    const player = validPlayers[0];
-    
-    // Print player information to console
-    console.log(`Found valid player information in ${battalion}:`);
-    console.log(JSON.stringify(player, null, 2));
-    
-    return player;
-  } catch (error) {
-    console.error(`Error fetching data from ${battalion} API:`, error.message);
-    if (error.response) {
-      console.error(`API error response:`, error.response.data);
-    }
-    return null;
-  }
-}
-
-// Function to check if a user is already registered using the cache
-async function isUserRegistered(discordId, steamId) {
-  try {
-    // Use the cache manager to get the data
-    const rows = await cacheManager.getCachedSheetData(
-      process.env.OFFICER_SPREADSHEET_ID,
-      `'Bot'!A2:C1000`,
-      'registrationdata'
-    );
-    
-    // Normalize the SteamID for comparison
-    const normalizedSteamId = steamId.trim().toUpperCase();
-    
-    return rows.some(row => {
-      if (!row[0] && !row[1]) return false; // Skip empty rows
-      
-      const rowDiscordId = row[0];
-      const rowSteamId = row[1] ? row[1].trim().toUpperCase() : '';
-      
-      return rowDiscordId === discordId || rowSteamId === normalizedSteamId;
-    });
-  } catch (error) {
-    console.error('Error checking registration:', error);
-    return false;
-  }
-}
-
-// Function to check if a user is an officer using the cache
-async function isUserOfficer(discordId) {
-  try {
-    // Get the cached officer data
-    const rows = await cacheManager.getCachedSheetData(
-      process.env.OFFICER_SPREADSHEET_ID,
-      `'Bot'!A2:C`,
-      'registrationdata'
-    );
-
-    const userRow = rows.find(row => row[0] === discordId);
-    
-    // If user found and officer status is true (column C, index 2)
-    return userRow && userRow.length > 2 && 
-           (userRow[2] === true || userRow[2] === "TRUE" || userRow[2] === "true");
-  } catch (error) {
-    console.error('Error checking officer status:', error);
-    return false;
-  }
-}
-
-// Function to register user in the database
-async function registerUserInDatabase(discordId, steamId, isOfficer) {
-  try {
-    // Get the cached data to find the first empty row
-    const rows = await cacheManager.getCachedSheetData(
-      process.env.OFFICER_SPREADSHEET_ID,
-      `'Bot'!A2:C1000`,
-      'registrationdata'
-    );
-    
-    // Find the first empty row
-    let emptyRowIndex = 2; // Start from row 2 (after headers)
-    for (let i = 0; i < rows.length; i++) {
-      if (!rows[i] || !rows[i][0]) {
-        emptyRowIndex = i + 2; // +2 because we start from row 2 and array is 0-indexed
-        break;
-      }
-      emptyRowIndex = i + 3; // Next row after the last filled one
-    }
-
-    // Store officer status as a string "TRUE" or "FALSE" for consistency
-    const officerValue = isOfficer ? "TRUE" : "FALSE";
-    console.log(`Registering user ${discordId} with officer status: ${officerValue} at row ${emptyRowIndex}`);
-
-    // Insert the new data
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: process.env.OFFICER_SPREADSHEET_ID,
-      range: `'Bot'!A${emptyRowIndex}:C${emptyRowIndex}`,
-      valueInputOption: 'USER_ENTERED',
-      resource: {
-        values: [[discordId, steamId, officerValue]]
-      }
-    });
-
-    // Add the new entry to the rows array we already have
-    rows.push([discordId, steamId, officerValue]);
-    console.log(`Added new entry to cache. Cache now contains ${rows.length} entries`);
-
-    return { success: true };
-  } catch (error) {
-    console.error('Error registering user in database:', error);
-    return { success: false, message: 'An error occurred while registering in the database. Please contact an administrator.' };
-  }
-}
-
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('register')
@@ -253,6 +42,7 @@ module.exports = {
     
     // If registering another user, check if the requester is an officer
     if (isRegisteringOtherUser) {
+      const {isUserOfficer} = require('../utils/isUserOfficer');
       const isOfficer = await isUserOfficer(interaction.user.id);
       
       if (!isOfficer) {
@@ -270,6 +60,7 @@ module.exports = {
     const discordId = isRegisteringOtherUser ? targetUser.id : interaction.user.id;
     
     // Check if the user is already registered
+    const {isUserRegistered} = require('../utils/isUserRegistered');
     const alreadyRegistered = await isUserRegistered(discordId, steamId);
     
     if (alreadyRegistered) {
@@ -285,6 +76,7 @@ module.exports = {
     
     // Get trooper info from the API
     console.log(`Looking up SteamID: ${steamId}`);
+    const {getTrooperInfoFromSteamID} = require('../utils/getTrooperInfoFromSteamID');
     const trooperInfo = await getTrooperInfoFromSteamID(steamId);
     // If trooper not found, inform them they aren't registered
     if (!trooperInfo) {
@@ -329,7 +121,6 @@ module.exports = {
     
     // Initialize the formatted nickname variable here
     let formattedNickname = trooperInfo.name;
-    let nicknameSetSuccess = false;
     
     // Try to set the user's nickname
     try {
@@ -445,6 +236,7 @@ module.exports = {
       await member.roles.remove(rolesToRemove);
       // Register the user in the database
       console.log(`Registering user ${discordId} in database with SteamID ${steamId} and officer status ${isTargetOfficer}`);
+      const {registerUserInDatabase} = require('../utils/registerUserInDatabase');
       const registrationResult = await registerUserInDatabase(discordId, steamId, isTargetOfficer);
 
       if (!registrationResult.success) {

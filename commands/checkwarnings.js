@@ -1,24 +1,14 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } = require('discord.js');
+const { google } = require('googleapis');
+const { isUserOfficer } = require('../utils/isUserOfficer');
 
-// Function to check if a user is an officer using the cache
-async function isUserOfficer(discordId) {
-  try {
-    // Get the cached officer data
-    const rows = await cacheManager.getCachedSheetData(
-      process.env.OFFICER_SPREADSHEET_ID,
-      `'Bot'!A2:C`,
-      'registrationdata'
-    );
+// Set up Google Sheets API
+const auth = new google.auth.GoogleAuth({
+  keyFile: 'service_account.json',
+  scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+});
 
-    const userRow = rows.find(row => row[0] === discordId);
-    
-    // If user found and officer status is true (column C, index 2)
-    return userRow && userRow.length > 2 && (userRow[2] === true || userRow[2] === "TRUE" || userRow[2] === "true");
-  } catch (error) {
-    console.error('Error checking officer status:', error);
-    return false;
-  }
-}
+const sheets = google.sheets({ version: 'v4', auth });
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -28,12 +18,11 @@ module.exports = {
       option.setName('steamid')
         .setDescription('The SteamID to check records for')
         .setRequired(true)
-    )
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages), // Restrict to users with Manage Messages permission
+    ),
 
   async execute(interaction) {
     try {
-      // Check if the user is an officer
+      // Check if the user is an officer using the utility function
       const isOfficer = await isUserOfficer(interaction.user.id);
       
       // If not an officer, deny access
@@ -51,13 +40,13 @@ module.exports = {
       // Normalize the SteamID for comparison
       const normalizedSteamId = steamId.trim().toUpperCase();
       
-      // Get the punishment data from cache - use a larger range to ensure we get all data
-      const punishmentData = await cacheManager.getCachedSheetData(
-        process.env.OFFICER_SPREADSHEET_ID,
-        `'Punishment Log'!A2:F5000`, // Increased range to 5000 rows
-        'punishments',
-        true // Force refresh to get the latest data
-      );
+      // Get the punishment data directly from Google Sheets
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: process.env.SPREADSHEET_ID,
+        range: `'Warns'!A2:F5000`, // Large range to ensure we get all data
+      });
+      
+      const punishmentData = response.data.values || [];
       
       console.log(`Checking records for SteamID: ${normalizedSteamId}`);
       console.log(`Found ${punishmentData.length} total punishment records`);

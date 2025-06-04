@@ -1,9 +1,7 @@
-const { checkBattalionEndpoint } = require('./apiLookup');
-
 async function getTrooperNameFromSteamID(steamID) {
   try {
     console.log(`Looking up name for SteamID: ${steamID}`);
-    
+    const { checkBattalionEndpoint } = require('./checkBattalionEndpoint');
     // First try 212th battalion
     let player = await checkBattalionEndpoint('212th', steamID);
     

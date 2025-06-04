@@ -1,25 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-
-// Function to check if a user is an officer using the cache
-async function isUserOfficer(discordId) {
-  try {
-    // Get the cached officer data
-    const rows = await cacheManager.getCachedSheetData(
-      process.env.OFFICER_SPREADSHEET_ID,
-      `'Bot'!A2:C`,
-      'registrationdata'
-    );
-
-    const userRow = rows.find(row => row[0] === discordId);
-    
-    // If user found and officer status is true (column C, index 2)
-    return userRow && userRow.length > 2 && 
-           (userRow[2] === true || userRow[2] === "TRUE" || userRow[2] === "true");
-  } catch (error) {
-    console.error('Error checking officer status:', error);
-    return false;
-  }
-}
+const { google } = require('googleapis');
+const { isUserOfficer } = require('../utils/isUserOfficer');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -30,21 +11,42 @@ module.exports = {
         .setDescription('The SteamID to check')
         .setRequired(true)
     ),
-
   async execute(interaction) {
     try {
       
       const steamIdToCheck = interaction.options.getString('steamid');
 
-      // Get blacklist data from cache
-      console.log(`Checking blacklist for SteamID: ${steamIdToCheck}`);
-      const rows = await cacheManager.getCachedSheetData(
-        process.env.OFFICER_SPREADSHEET_ID,
-        `'Blacklist'!A:F`,
-        'blacklist'
-      );
+      // Initialize Google Sheets API
+      const auth = new google.auth.GoogleAuth({
+        keyFile: './service_account.json',
+        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+      });
 
-      console.log(`Got ${rows.length} rows from blacklist cache`);
+      const sheets = google.sheets({ version: 'v4', auth });
+      const spreadsheetId = process.env.SPREADSHEET_ID;
+
+      if (!spreadsheetId) {
+        throw new Error('SPREADSHEET_ID environment variable is not set');
+      }
+
+      // Get blacklist data directly from the spreadsheet
+      console.log(`Checking blacklist for SteamID: ${steamIdToCheck}`);
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `'BL'!A:F`,
+      });
+
+      const rows = response.data.values;
+
+      if (!rows || rows.length === 0) {
+        console.log('No blacklist data found in spreadsheet');
+        return await interaction.editReply({
+          content: '⚠️ No blacklist data found.',
+          ephemeral: true,
+        });
+      }
+
+      console.log(`Got ${rows.length} rows from blacklist`);
       
       // Find the row with matching SteamID (column C, index 2)
       const result = rows.find(row => row && row[2] === steamIdToCheck);

@@ -3,41 +3,6 @@ const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
 
-const auth = new google.auth.GoogleAuth({
-  keyFile: 'service_account.json',
-  scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-});
-
-const sheets = google.sheets({ version: 'v4', auth });
-
-// Function to check if a user is an officer
-async function isUserOfficer(discordId) {
-  try {
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.SPREADSHEET_ID,
-      range: `'Users'!A2:C1000`,
-      valueRenderOption: 'UNFORMATTED_VALUE'
-    });
-
-    const rows = response.data.values || [];
-    const nonEmptyRows = rows.filter(row => row && row.length > 0 && row[0]);
-    const userRow = nonEmptyRows.find(row => row[0] === discordId);
-    
-    // Check for various possible "true" values
-    const isOfficer = userRow && userRow.length > 2 && 
-           (userRow[2] === true || 
-            userRow[2] === "TRUE" || 
-            userRow[2] === "true" || 
-            userRow[2] === 1 ||
-            String(userRow[2]).toLowerCase() === "true");
-    
-    return isOfficer;
-  } catch (error) {
-    console.error('Error checking officer status:', error);
-    return false;
-  }
-}
-
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('help')
@@ -48,9 +13,11 @@ module.exports = {
     await interaction.deferReply({ ephemeral: true });
     
     // Check if the user is registered
+    const {isUserRegistered} = require('../utils/isUserRegistered.js');
     const isRegistered = await isUserRegistered(interaction.user.id);
     
     // Check if the user is an officer (only if they're registered)
+    const {isUserOfficer} = require('../utils/isUserOfficer.js');
     const isOfficer = isRegistered ? await isUserOfficer(interaction.user.id) : false;
     
     // Default values from embed.js
@@ -189,22 +156,3 @@ module.exports = {
   }
 };
 
-// Function to check if a user is registered
-async function isUserRegistered(discordId) {
-  try {
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.SPREADSHEET_ID,
-      range: `'Users'!A2:C1000`,
-      valueRenderOption: 'UNFORMATTED_VALUE'
-    });
-
-    const rows = response.data.values || [];
-    const nonEmptyRows = rows.filter(row => row && row.length > 0 && row[0]);
-    const existingEntry = nonEmptyRows.find(row => row[0] === discordId);
-    
-    return !!existingEntry; // Convert to boolean
-  } catch (error) {
-    console.error('Error checking user registration:', error);
-    return false; // Default to not registered on error
-  }
-}

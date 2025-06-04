@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { google } = require('googleapis');
+const { isUserOfficer } = require('../utils/isUserOfficer');
 
 const auth = new google.auth.GoogleAuth({
   keyFile: 'service_account.json',
@@ -40,21 +41,39 @@ module.exports = {
         ephemeral: true
       });
       
-      // Step 1: Get all SteamIDs from the 212th Main Database using cache
+      // Step 1: Check if Main sheet is updating by checking if A3:A is blank
+      console.log("Checking if Main sheet is updating");
+      const checkResponse = await sheets.spreadsheets.values.get({
+        spreadsheetId: process.env.SPREADSHEET_ID,
+        range: `'Main'!A3:A`,
+      });
+      
+      const checkRows = checkResponse.data.values || [];
+      const hasData = checkRows.some(row => row && row[0] && row[0].toString().trim());
+      
+      if (!hasData) {
+        await interaction.editReply({
+          content: "⏳ The spreadsheet is currently updating. Please try again in a few minutes.",
+          ephemeral: true
+        });
+        return;
+      }
+      
+      // Step 2: Get all SteamIDs from the 212th Main Database
       console.log("Fetching SteamIDs from main database");
-      const mainDbRows = await cacheManager.getCachedSheetData(
-        process.env.MAIN_SPREADSHEET_ID,
-        `'212th Attack Battalion'!F2:F1000`, // SteamID column (F)
-        'mainSteamIds',
-        true // Force refresh to ensure we have the latest data
-      );
+      const mainDbResponse = await sheets.spreadsheets.values.get({
+        spreadsheetId: process.env.SPREADSHEET_ID,
+        range: `'Main'!D3:D1000`, // SteamID column (D)
+      });
+      
+      const mainDbRows = mainDbResponse.data.values || [];
       
       // Debug: Log the first few rows to verify data format
       console.log("Sample of main database SteamIDs:", mainDbRows?.slice(0, 5));
       
       // Make sure we properly filter out empty values and normalize SteamIDs for comparison
       const validSteamIds = new Set();
-      (mainDbRows || []).forEach(row => {
+      mainDbRows.forEach(row => {
         if (row && row[0] && typeof row[0] === 'string' && row[0].trim()) {
           // Normalize SteamID format (uppercase, trim whitespace)
           const normalizedSteamId = row[0].trim().toUpperCase();
@@ -74,22 +93,22 @@ module.exports = {
       
       console.log(`Found ${validSteamIds.size} valid SteamIDs in main database`);
       
-      // Step 2: Get all entries from the Bot sheet using cache
-      console.log("Fetching entries from Bot sheet");
-      const botDbRows = await cacheManager.getCachedSheetData(
-        process.env.OFFICER_SPREADSHEET_ID,
-        `'Bot'!A2:C1000`,
-        'botEntries',
-        true // Force refresh to ensure we have the latest data
-      );
+      // Step 3: Get all entries from the Users sheet
+      console.log("Fetching entries from Users sheet");
+      const botDbResponse = await sheets.spreadsheets.values.get({
+        spreadsheetId: process.env.SPREADSHEET_ID,
+        range: `'Users'!A2:C1000`,
+      });
+      
+      const botDbRows = botDbResponse.data.values || [];
       
       // Debug: Log the first few rows to verify data format
       console.log("Sample of bot database entries:", botDbRows?.slice(0, 5));
       
-      const botEntries = botDbRows || [];
-      console.log(`Found ${botEntries.length} entries in Bot sheet`);
+      const botEntries = botDbRows;
+      console.log(`Found ${botEntries.length} entries in Users sheet`);
       
-      // Step 3: Identify rows to keep (valid entries) and rows to remove
+      // Step 4: Identify rows to keep (valid entries) and rows to remove
       console.log("Identifying rows to keep");
       const rowsToKeep = [];
       const rowsToRemove = [];
@@ -154,7 +173,7 @@ module.exports = {
         }
       }
       
-      // Step 4: Create an embed with the list of removed users
+      // Step 5: Create an embed with the list of removed users
       const embed = new EmbedBuilder()
         .setTitle('Database Cleanup Results')
         .setColor('#FF8C00')
@@ -221,7 +240,7 @@ module.exports = {
         });
       }
       
-      // Step 5: Send the embed to the user BEFORE performing database operations
+      // Step 6: Send the embed to the user BEFORE performing database operations
       console.log(`Sending embed with ${removedUsers.length} users to be removed`);
       await interaction.editReply({
         content: null, // Remove the "Starting database cleanup" message
@@ -229,56 +248,29 @@ module.exports = {
         ephemeral: true
       });
       
-      // Step 6: Now perform the database operations
+      // Step 7: Now perform the database operations
       if (rowsToRemove.length > 0) {
         console.log("Starting database operations...");
         
         try {
           // Clear the entire range and rewrite with only valid rows
-          console.log("Clearing Bot sheet data");
+          console.log("Clearing Users sheet data");
           await sheets.spreadsheets.values.clear({
-            spreadsheetId: process.env.OFFICER_SPREADSHEET_ID,
-            range: `'Bot'!A2:C1000`,
+            spreadsheetId: process.env.SPREADSHEET_ID,
+            range: `'Users'!A2:C1000`,
           });
           
           // Then write back the valid rows
           if (rowsToKeep.length > 0) {
-            console.log(`Writing ${rowsToKeep.length} valid rows back to Bot sheet`);
+            console.log(`Writing ${rowsToKeep.length} valid rows back to Users sheet`);
             await sheets.spreadsheets.values.update({
-              spreadsheetId: process.env.OFFICER_SPREADSHEET_ID,
-              range: `'Bot'!A2:C${1 + rowsToKeep.length}`,
+              spreadsheetId: process.env.SPREADSHEET_ID,
+              range: `'Users'!A2:C${1 + rowsToKeep.length}`,
               valueInputOption: 'USER_ENTERED',
               resource: {
                 values: rowsToKeep
               }
             });
-          }
-          
-          // Clear the cache for Bot entries since we've modified the data
-          cacheManager.clearCache('botEntries');
-          cacheManager.clearCache('officer'); // Clear the officer cache as well
-
-          // Fetch fresh data to ensure cache is updated with the latest information
-          console.log("Fetching fresh data after cleanup");
-          try {
-            await cacheManager.getCachedSheetData(
-              process.env.OFFICER_SPREADSHEET_ID,
-              `'Bot'!A2:C1000`,
-              'botEntries',
-              true // Force refresh to ensure we have the latest data
-            );
-            
-            await cacheManager.getCachedSheetData(
-              process.env.OFFICER_SPREADSHEET_ID,
-              `'Bot'!A2:C1000`,
-              'officer',
-              true // Force refresh to ensure we have the latest data
-            );
-            
-            console.log("Successfully refreshed cache with latest data");
-          } catch (refreshError) {
-            console.error("Error refreshing cache after cleanup:", refreshError);
-            // Continue with the command even if cache refresh fails
           }
           
           // Send a new follow-up message instead of trying to edit the previous one
@@ -317,27 +309,3 @@ module.exports = {
     }
   }
 };
-
-// Helper function to check if a user is an officer using cache
-async function isUserOfficer(discordId) {
-  try {
-    const rows = await cacheManager.getCachedSheetData(
-      process.env.OFFICER_SPREADSHEET_ID,
-      `'Bot'!A2:C1000`,
-      'officer'
-    );
-
-    const userRow = rows.find(row => row[0] === discordId);
-    
-    // Check if column C has a true value (officer status)
-    // Google Sheets API returns "TRUE" as a string, not a boolean
-    return userRow && (userRow[2] === true || 
-                       userRow[2] === "TRUE" || 
-                       userRow[2] === "true" || 
-                       userRow[2] === 1 ||
-                       String(userRow[2]).toLowerCase() === "true");
-  } catch (error) {
-    console.error('Error checking officer status:', error);
-    return false;
-  }
-}

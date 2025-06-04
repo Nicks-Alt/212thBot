@@ -172,23 +172,7 @@ async function checkBattalionEndpoint(battalion, steamID) {
   }
 }
 
-// Function to get SteamID from Discord ID using cache
-async function getSteamIdFromDiscordId(discordId) {
-  try {
-    const rows = await cacheManager.getCachedSheetData(
-      process.env.OFFICER_SPREADSHEET_ID,
-      `'Bot'!A2:B`,
-      'registrationdata'
-    );
-    
-    const userRow = rows.find(row => row[0] === discordId);
-    
-    return userRow ? userRow[1] : null;
-  } catch (error) {
-    console.error('Error getting SteamID from Discord ID:', error);
-    return null;
-  }
-}
+
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -213,7 +197,8 @@ module.exports = {
       // Get the Discord ID of the user to look up
       const discordId = userToLookup.id;
       
-      // Get the SteamID from the Bot database using cache
+      // Get the SteamID from the Bot database
+      const {getSteamIdFromDiscordId} = require('../utils/getSteamIdFromDiscordId');
       const steamId = await getSteamIdFromDiscordId(discordId);
       
       if (!steamId) {

@@ -1,28 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { exec } = require('child_process');
 
-// Function to check if a user is an officer using the cache
-async function isUserOfficer(discordId) {
-  try {
-    // Get the cached officer data
-    const rows = await cacheManager.getCachedSheetData(
-      process.env.OFFICER_SPREADSHEET_ID,
-      `'Bot'!A2:C`,
-      'registrationdata',
-      false
-    );
-
-    const userRow = rows.find(row => row[0] === discordId);
-    
-    // If user found and officer status is true (column C, index 2)
-    return userRow && userRow.length > 2 && 
-           (userRow[2] === true || userRow[2] === "TRUE" || userRow[2] === "true");
-  } catch (error) {
-    console.error('Error checking officer status:', error);
-    return false;
-  }
-}
-
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('restart')
@@ -30,6 +8,7 @@ module.exports = {
     
     async execute(interaction) {
         // Check if user is an officer
+        const { isUserOfficer } = require('../utils/isUserOfficer');
         const isOfficer = await isUserOfficer(interaction.user.id);
         
         if (!isOfficer) {

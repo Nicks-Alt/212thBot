@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require('discord.js');
 const { google } = require('googleapis');
+const { isUserOfficer } = require('../utils/isUserOfficer');
 
 // Set up Google Sheets API
 const auth = new google.auth.GoogleAuth({
@@ -9,44 +10,17 @@ const auth = new google.auth.GoogleAuth({
 
 const sheets = google.sheets({ version: 'v4', auth });
 
-// Function to check if a user is an officer using the cache
-async function isUserOfficer(discordId) {
-  try {
-    // Get the cached data using the new cache key
-    const rows = await cacheManager.getCachedSheetData(
-      process.env.OFFICER_SPREADSHEET_ID,
-      `'Bot'!A:C`,
-      'registrationdata'
-    );
-    
-    const userRow = rows.find(row => row[0] === discordId);
-    
-    // Check for various possible "true" values
-    const isOfficer = userRow && userRow.length > 2 && 
-           (userRow[2] === true || 
-            userRow[2] === "TRUE" || 
-            userRow[2] === "true" || 
-            userRow[2] === 1 ||
-            String(userRow[2]).toLowerCase() === "true");
-    
-    return isOfficer;
-  } catch (error) {
-    console.error('Error checking officer status:', error);
-    return false; // Default to not an officer on error
-  }
-}
-
 // Function to fetch a specific page of registered users
 async function fetchRegisteredUsersPage(page, pageSize) {
   try {
     // Calculate the range to fetch
     const startRow = 2 + (page - 1) * pageSize;
     const endRow = startRow + pageSize - 1;
-    const range = `'Bot'!A${startRow}:C${endRow}`;
+    const range = `'Users'!A${startRow}:C${endRow}`;
     
     // Fetch the data directly from Google Sheets
     const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.OFFICER_SPREADSHEET_ID,
+      spreadsheetId: process.env.SPREADSHEET_ID,
       range: range,
     });
     
@@ -62,12 +36,13 @@ async function fetchRegisteredUsersPage(page, pageSize) {
 // Function to get the total count of registered users
 async function getTotalRegisteredUsers() {
   try {
-    // Get all data to count total entries using the new cache key
-    const rows = await cacheManager.getCachedSheetData(
-      process.env.OFFICER_SPREADSHEET_ID,
-      `'Bot'!A2:A1000`,
-      'registrationdata'
-    );
+    // Get all data to count total entries
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.SPREADSHEET_ID,
+      range: `'Users'!A2:A1000`,
+    });
+    
+    const rows = response.data.values || [];
     
     // Filter out empty rows
     return rows.filter(row => row && row.length > 0 && row[0]).length;
@@ -121,7 +96,7 @@ module.exports = {
 
   async execute(interaction) {
     try {
-      // Check if the user is an officer
+      // Check if the user is an officer using the utility function
       const isOfficer = await isUserOfficer(interaction.user.id);
       
       if (!isOfficer) {
@@ -137,19 +112,20 @@ module.exports = {
       
       // If a specific user was provided, check only that user
       if (targetUser) {
-        // Fetch registration data from the cache using the new cache key
-        const registeredUsers = await cacheManager.getCachedSheetData(
-          process.env.OFFICER_SPREADSHEET_ID,
-          `'Bot'!A2:C1000`,
-          'registrationdata'
-        );
+        // Fetch registration data from the sheet
+        const response = await sheets.spreadsheets.values.get({
+          spreadsheetId: process.env.SPREADSHEET_ID,
+          range: `'Users'!A2:C1000`,
+        });
+        
+        const registeredUsers = response.data.values || [];
         
         // Filter out empty rows
         const validRegisteredUsers = registeredUsers.filter(row => row && row.length > 0 && row[0] && row[1]);
         const userEntry = validRegisteredUsers.find(row => row[0] === targetUser.id);
         
         if (userEntry) {
-          const isOfficer = userEntry.length > 2 && 
+          const isTargetOfficer = userEntry.length > 2 && 
                           (userEntry[2] === true || 
                            userEntry[2] === "TRUE" || 
                            userEntry[2] === "true" || 
@@ -163,7 +139,7 @@ module.exports = {
             .addFields(
               { name: 'Discord ID', value: userEntry[0], inline: true },
               { name: 'Steam ID', value: userEntry[1], inline: true },
-              { name: 'Officer Status', value: isOfficer ? 'Yes' : 'No', inline: true }
+              { name: 'Officer Status', value: isTargetOfficer ? 'Yes' : 'No', inline: true }
             )
             .setThumbnail(targetUser.displayAvatarURL())
             .setTimestamp()
