@@ -1,8 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { google } = require('googleapis');
-const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
+require('dotenv').config();
 
 const auth = new google.auth.GoogleAuth({
   keyFile: 'service_account.json',
@@ -196,44 +194,53 @@ module.exports = {
     try {
       // Prepare roles to add
       const rolesToAdd = [];
-      
       // Add 212th role if defined
-      if (process.env['212TH_ROLE'] && process.env['212TH_ROLE'].trim() !== '') {
-        rolesToAdd.push(process.env['212TH_ROLE']);
-      } else {
-        // Fallback to hardcoded role ID
-        rolesToAdd.push('1332687042756481065');
-      }
-      
-      // Add enlisted role if defined
-      if (process.env.ENLISTED_ROLE && process.env.ENLISTED_ROLE.trim() !== '') {
-        rolesToAdd.push(process.env.ENLISTED_ROLE);
-      } else {
-        // Fallback to hardcoded role ID
-        rolesToAdd.push('1359286513518645399');
-      }
-      
+      rolesToAdd.push(process.env['212TH_ROLE']);
+      // Add enlisted role 
+      rolesToAdd.push(process.env.ENLISTED_ROLE);
       // Check if user is in 212AB based on API information
       const is212AB = trooperInfo.company === '212AB';
       
       // If we determined the user is in 212AB, add the role
       if (is212AB) {
-        if (process.env['2AB_ROLE'] && process.env['2AB_ROLE'].trim() !== '') {
           rolesToAdd.push(process.env['2AB_ROLE']);
-        } else {
-          // Fallback to hardcoded 2AB role ID if needed
-          rolesToAdd.push('1359286513518645400'); // Replace with actual 2AB role ID
-        }
-        console.log(`Adding 2AB role to ${discordId} based on company information`);
+          console.log(`Adding 2AB role to ${discordId} based on company information`);
       }
-      
-      if (rolesToAdd.length > 0) {
-        await member.roles.add(rolesToAdd);
-      }
+      console.log(`Roles to add: ${rolesToAdd}`);
+      await member.roles.add(rolesToAdd);
+      // Only remove roles if they are properly defined AND the user actually has them
       const rolesToRemove = [];
-      rolesToRemove.push(process.env['SHINY_ROLE']);
-      rolesToRemove.push(process.env['CADET_ROLE']);
-      await member.roles.remove(rolesToRemove);
+
+      if (process.env.SHINY_ROLE && process.env.SHINY_ROLE !== 'undefined') {
+        if (member.roles.cache.has(process.env.SHINY_ROLE)) {
+          rolesToRemove.push(process.env.SHINY_ROLE);
+          console.log(`User has SHINY role, will remove it`);
+        } else {
+          console.log(`User does not have SHINY role, skipping removal`);
+        }
+      }
+
+      if (process.env.CADET_ROLE && process.env.CADET_ROLE !== 'undefined') {
+        if (member.roles.cache.has(process.env.CADET_ROLE)) {
+          rolesToRemove.push(process.env.CADET_ROLE);
+          console.log(`User has CADET role, will remove it`);
+        } else {
+          console.log(`User does not have CADET role, skipping removal`);
+        }
+      }
+
+      if (rolesToRemove.length > 0) {
+        console.log(`Removing roles: ${rolesToRemove}`);
+        try {
+          await member.roles.remove(rolesToRemove);
+          console.log(`Successfully removed ${rolesToRemove.length} role(s)`);
+        } catch (error) {
+          console.error('Error removing roles:', error);
+          // Continue without failing the registration
+        }
+      } else {
+        console.log(`No roles to remove for user ${discordId}`);
+      }
       // Register the user in the database
       console.log(`Registering user ${discordId} in database with SteamID ${steamId} and officer status ${isTargetOfficer}`);
       const {registerUserInDatabase} = require('../utils/registerUserInDatabase');
