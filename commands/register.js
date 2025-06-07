@@ -208,39 +208,6 @@ module.exports = {
       }
       console.log(`Roles to add: ${rolesToAdd}`);
       await member.roles.add(rolesToAdd);
-      // Only remove roles if they are properly defined AND the user actually has them
-      const rolesToRemove = [];
-
-      if (process.env.SHINY_ROLE && process.env.SHINY_ROLE !== 'undefined') {
-        if (member.roles.cache.has(process.env.SHINY_ROLE)) {
-          rolesToRemove.push(process.env.SHINY_ROLE);
-          console.log(`User has SHINY role, will remove it`);
-        } else {
-          console.log(`User does not have SHINY role, skipping removal`);
-        }
-      }
-
-      if (process.env.CADET_ROLE && process.env.CADET_ROLE !== 'undefined') {
-        if (member.roles.cache.has(process.env.CADET_ROLE)) {
-          rolesToRemove.push(process.env.CADET_ROLE);
-          console.log(`User has CADET role, will remove it`);
-        } else {
-          console.log(`User does not have CADET role, skipping removal`);
-        }
-      }
-
-      if (rolesToRemove.length > 0) {
-        console.log(`Removing roles: ${rolesToRemove}`);
-        try {
-          await member.roles.remove(rolesToRemove);
-          console.log(`Successfully removed ${rolesToRemove.length} role(s)`);
-        } catch (error) {
-          console.error('Error removing roles:', error);
-          // Continue without failing the registration
-        }
-      } else {
-        console.log(`No roles to remove for user ${discordId}`);
-      }
       // Register the user in the database
       console.log(`Registering user ${discordId} in database with SteamID ${steamId} and officer status ${isTargetOfficer}`);
       const {registerUserInDatabase} = require('../utils/registerUserInDatabase');
