@@ -31,7 +31,7 @@ async function handleAppendLog(interaction) {
         // Create modal with existing participants pre-populated
         const modal = new ModalBuilder()
             .setCustomId(`addtolog_modal_${logId}`)
-            .setTitle(`Add/Remove Participants to ${aarType}`);
+            .setTitle(`Add/Remove Participants to log`);
 
         const participantsInput = new TextInputBuilder()
             .setCustomId('participants')
