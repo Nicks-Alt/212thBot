@@ -2,6 +2,17 @@ const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedB
 const { google } = require('googleapis');
 
 async function handleAppendLog(interaction) {
+
+    const { isUserOfficer } = require('../utils/isUserOfficer');
+    const isOfficer = await isUserOfficer(interaction.user.id);
+
+    if (!isOfficer) {
+        return await interaction.reply({
+            content: `❌ This command is restricted to officers only.`,
+            ephemeral: true
+        });
+    }
+    
     const logId = interaction.options.getString('logid');
 
     try {
