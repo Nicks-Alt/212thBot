@@ -2,17 +2,17 @@ const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedB
 const { google } = require('googleapis');
 
 async function handleAppendLog(interaction) {
-
+    // Check if user is an officer first
     const { isUserOfficer } = require('../utils/isUserOfficer');
     const isOfficer = await isUserOfficer(interaction.user.id);
-
+    
     if (!isOfficer) {
         return await interaction.reply({
-            content: `❌ This command is restricted to officers only.`,
+            content: '❌ This command is restricted to officers only.',
             ephemeral: true
         });
     }
-    
+
     const logId = interaction.options.getString('logid');
 
     try {
@@ -86,7 +86,7 @@ async function handleAppendLog(interaction) {
             // Update both the AAR message embed and the spreadsheet
             await Promise.all([
                 updateAARMessageEmbed(logId, updatedParticipants, interaction.client),
-                updateSpreadsheetRow(logId, updatedParticipants)
+                updateSpreadsheetRow(logId, updatedParticipants, aarType)
             ]);
 
             const confirmEmbed = new EmbedBuilder()
@@ -187,7 +187,7 @@ async function getExistingParticipants(logId, client) {
 
         return {
             participants: participantsField.value,
-            aarType: existingEmbed.description // Assuming the title contains the AAR type
+            aarType: existingEmbed.description // The description contains the AAR type
         };
 
     } catch (error) {
@@ -291,11 +291,12 @@ async function updateAARMessageEmbed(logId, updatedParticipants, client) {
 }
 
 /**
- * Updates the spreadsheet row with new participants
+ * Updates the spreadsheet row with new participants based on event type
  * @param {string} logId - The log ID to search for
  * @param {string} updatedParticipants - Updated participants string
+ * @param {string} eventType - The type of AAR event
  */
-async function updateSpreadsheetRow(logId, updatedParticipants) {
+async function updateSpreadsheetRow(logId, updatedParticipants, eventType) {
     try {
         // Initialize Google Sheets API
         const auth = new google.auth.GoogleAuth({
@@ -317,25 +318,43 @@ async function updateSpreadsheetRow(logId, updatedParticipants) {
 
         const { rowIndex } = result;
 
-        // Get all data to find the participants column
-        const response = await sheets.spreadsheets.values.get({
-            spreadsheetId,
-            range: 'AARs!A1:DE1', // Get headers
-        });
-
-        const headers = response.data.values[0];
-        const participantsColumnIndex = headers.findIndex(header => 
-            header && header.toLowerCase().includes('participant')
-        );
-
-        if (participantsColumnIndex === -1) {
-            console.error('Participants column not found in spreadsheet');
-            return;
+        // Determine the correct column based on event type (matching insertAAR.js logic)
+        let participantsColumnIndex;
+        
+        switch (eventType) {
+            case 'Server 1 Event':
+            case 'Server 2 Event':
+                participantsColumnIndex = 29; // Column AD (data.participants)
+                break;
+                
+            case 'Training Simulation':
+                participantsColumnIndex = 23; // Column X (data.participants)
+                break;
+                
+            case 'Joint Training Simulation':
+                participantsColumnIndex = 96; // Column CS (data.participants)
+                break;
+                
+            default:
+                console.error(`Unsupported event type for participant updates: ${eventType}`);
+                return;
         }
 
-        // Convert column index to letter (A, B, C, etc.)
-        const columnLetter = String.fromCharCode(65 + participantsColumnIndex);
+        // Convert column index to letter
+        function numberToColumnLetter(num) {
+            let result = '';
+            while (num > 0) {
+                num--;
+                result = String.fromCharCode(65 + (num % 26)) + result;
+                num = Math.floor(num / 26);
+            }
+            return result;
+        }
+
+        const columnLetter = numberToColumnLetter(participantsColumnIndex + 1); // +1 because array is 0-indexed
         const range = `AARs!${columnLetter}${rowIndex}`;
+
+        console.log(`Updating ${eventType} participants in column ${columnLetter} (index ${participantsColumnIndex}) at row ${rowIndex}`);
 
         // Update the participants cell
         await sheets.spreadsheets.values.update({
