@@ -84,16 +84,23 @@ async function handleAppendLog(interaction) {
             console.log(`Updating participants for Log ID ${logId}`);
 
             // Update both the AAR message embed and the spreadsheet
-            await Promise.all([
-                updateAARMessageEmbed(logId, updatedParticipants, interaction.client),
-                updateSpreadsheetRow(logId, updatedParticipants, aarType)
-            ]);
+            const embedUpdateResult = await updateAARMessageEmbed(logId, updatedParticipants, interaction.client);
+            await updateSpreadsheetRow(logId, updatedParticipants, aarType);
 
             const confirmEmbed = new EmbedBuilder()
                 .setTitle('✅ Participants Updated Successfully')
                 .setDescription(`**Log ID:** \`${logId}\`\n**Updated Participants:**\n${updatedParticipants.split(',').map(p => `• ${p.trim()}`).join('\n')}`)
                 .setColor(0x00FF00)
                 .setTimestamp();
+
+            // Add a note if the message couldn't be edited
+            if (!embedUpdateResult.success) {
+                confirmEmbed.addFields({
+                    name: '⚠️ Note',
+                    value: 'The AAR data was updated in the spreadsheet, but the Discord message could not be edited (message not owned by bot).',
+                    inline: false
+                });
+            }
 
             await modalSubmission.editReply({
                 embeds: [confirmEmbed],
@@ -178,16 +185,32 @@ async function getExistingParticipants(logId, client) {
         }
 
         // Find the participants field
-        const participantsField = existingEmbed.fields.find(field => field.name === 'Participants');
+        const participantsField = existingEmbed.fields.find(field => field.name.includes('Participants'));
         
         if (!participantsField) {
             console.error(`Participants field not found in embed with Log ID ${logId}`);
             return null;
         }
 
+        // Determine AAR type based on message ownership
+        let aarType;
+        if (targetMessage.author.id === client.user.id) {
+            // Bot's message - AAR type is in description
+            aarType = existingEmbed.description;
+        } else {
+            // Not bot's message - AAR type is in "Log Type" field
+            const logTypeField = existingEmbed.fields.find(field => field.name === 'Log Type');
+            if (logTypeField) {
+                aarType = logTypeField.value;
+            } else {
+                console.error(`Log Type field not found in embed with Log ID ${logId}`);
+                return null;
+            }
+        }
+
         return {
             participants: participantsField.value,
-            aarType: existingEmbed.description // The description contains the AAR type
+            aarType: aarType
         };
 
     } catch (error) {
@@ -201,6 +224,7 @@ async function getExistingParticipants(logId, client) {
  * @param {string} logId - The log ID to search for
  * @param {string} updatedParticipants - Updated participants string
  * @param {Client} client - Discord client
+ * @returns {Promise<Object>} - Returns {success: boolean, reason?: string}
  */
 async function updateAARMessageEmbed(logId, updatedParticipants, client) {
     try {
@@ -209,7 +233,7 @@ async function updateAARMessageEmbed(logId, updatedParticipants, client) {
         
         if (!aarChannel) {
             console.error(`AAR channel with ID ${aarChannelId} not found`);
-            return;
+            return { success: false, reason: 'Channel not found' };
         }
 
         // Search for the message with the matching log ID
@@ -249,14 +273,20 @@ async function updateAARMessageEmbed(logId, updatedParticipants, client) {
         
         if (!targetMessage) {
             console.error(`Message with Log ID ${logId} not found in AAR channel`);
-            return;
+            return { success: false, reason: 'Message not found' };
+        }
+
+        // Check if the message is owned by the bot
+        if (targetMessage.author.id !== client.user.id) {
+            console.log(`Message with Log ID ${logId} is not owned by the bot (owned by ${targetMessage.author.id})`);
+            return { success: false, reason: 'Message not owned by bot' };
         }
 
         // Get the existing embed
         const existingEmbed = targetMessage.embeds[0];
         if (!existingEmbed) {
             console.error(`No embed found in message with Log ID ${logId}`);
-            return;
+            return { success: false, reason: 'No embed found' };
         }
 
         // Find the participants field and update it
@@ -265,7 +295,7 @@ async function updateAARMessageEmbed(logId, updatedParticipants, client) {
         
         if (participantsFieldIndex === -1) {
             console.error(`Participants field not found in embed with Log ID ${logId}`);
-            return;
+            return { success: false, reason: 'Participants field not found' };
         }
 
         // Update the participants field
@@ -284,9 +314,11 @@ async function updateAARMessageEmbed(logId, updatedParticipants, client) {
         // Update the message
         await targetMessage.edit({ embeds: [updatedEmbed] });
         console.log(`Successfully updated AAR message with Log ID ${logId}`);
+        return { success: true };
 
     } catch (error) {
         console.error('Error updating AAR message embed:', error);
+        return { success: false, reason: 'Error during update' };
     }
 }
 
