@@ -116,7 +116,7 @@ module.exports = {
                         .setDescription('Type of test conducted')
                         .setRequired(true)
                         .addChoices(
-                            { name: 'NCO - CLG Test', value: 'NCO - CLG Test' },
+                            { name: 'NCO - Combat Leadership Guide Test', value: 'NCO - Combat Leadership Guide Test' },
                             { name: 'NCO - Event Lead', value: 'NCO - Event Lead' },
                             { name: 'NCO - Training Lead', value: 'NCO - Training Lead' },
                             { name: 'NCO - Tryout / BT', value: 'NCO - Tryout / BT' },
