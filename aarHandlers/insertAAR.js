@@ -18,7 +18,7 @@ async function insertAAR(eventType, name, steamId, data, ID) {
     rowData[1] = name; // Column B
     rowData[2] = steamId; // Column C
     rowData[3] = eventType; // Column D
-    rowData[108] = logId; // Column DE
+    rowData[109] = logId; // Column DF
     
     // Fill specific columns based on event type
     switch (eventType) {
@@ -87,6 +87,7 @@ async function insertAAR(eventType, name, steamId, data, ID) {
     case '2AB Certifications':
         rowData[60] = data.participantName; // BI (B=52, I=8, so 52+8=60)
         rowData[89] = data.participantSteamId; // CL (C=78, L=11, so 78+11=89)
+        rowData[107] = data.certification; // DD (D=104, D=3, so 104+3=107)
         rowData[62] = data.result; // BK (B=52, K=10, so 52+10=62)
         break;
         

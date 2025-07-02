@@ -4,6 +4,7 @@ const { insertAAR } = require('./insertAAR');
 async function handle2ABCertLog(interaction, eventType) {
     // Get the options selected in the command
     const result = interaction.options.getString('result');
+    const certification = interaction.options.getString('certification');
     
     // Create the modal
     const modal = new ModalBuilder()
@@ -80,6 +81,7 @@ async function handle2ABCertLog(interaction, eventType) {
                 { name: 'Examiner SteamID', value: steamId, inline: false },
                 { name: 'Participant', value: participantName, inline: false },
                 { name: 'Participant SteamID', value: participantSteamId, inline: false },
+                { name: 'Certification', value: certification, inline: false },
                 { name: 'Gamemaster', value: gamemaster, inline: false },
                 { name: 'Result', value: result, inline: true }
             )
@@ -96,6 +98,7 @@ async function handle2ABCertLog(interaction, eventType) {
             let data = {
                 participantName: participantName,
                 participantSteamId: participantSteamId,
+                certification: certification,
                 gamemaster: gamemaster,
                 result: result
             }

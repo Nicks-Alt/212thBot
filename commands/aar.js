@@ -154,9 +154,20 @@ module.exports = {
                 )
         )
         .addSubcommand(subcommand =>
-            subcommand
-                .setName('2abcert')
-                .setDescription('Log a 2AB Certification AAR')
+        subcommand
+            .setName('2abcert')
+            .setDescription('Log a 2AB Certification AAR')
+            .addStringOption(option =>
+                   option
+                       .setName('certification')
+                       .setDescription('Type of 2AB certification')
+                       .setRequired(true)
+                       .addChoices(
+                           { name: 'Hull Sweep/Jetpack', value: 'Hull Sweep/Jetpack' },
+                           { name: 'Hotdrop', value: 'Hotdrop' },
+                           { name: 'Boarding Party', value: 'Boarding Party' }
+                        )
+                )
                 .addStringOption(option =>
                     option
                         .setName('result')
@@ -168,6 +179,7 @@ module.exports = {
                         )
                 )
         )
+
         .addSubcommand(subcommand =>
             subcommand
                 .setName('arfcert')
